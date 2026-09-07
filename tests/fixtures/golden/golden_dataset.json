@@ -1,0 +1,152 @@
+{
+  "version": "1.0",
+  "documents": [
+    {
+      "filename": "acme_annual_report_2023.pdf",
+      "doc_date": "2023-12-31",
+      "expected_facts": [
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "ceo",
+          "normalized_value": "Jane Doe",
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "revenue",
+          "normalized_value": {"value": 100000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "headcount",
+          "normalized_value": 450,
+          "validity_start": "2023-12-31",
+          "validity_end": "2023-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "net_income_gaap",
+          "normalized_value": {"value": 18000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        }
+      ]
+    },
+    {
+      "filename": "acme_fy23_press_release.pdf",
+      "doc_date": "2024-02-15",
+      "expected_facts": [
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "revenue",
+          "normalized_value": {"value": 100000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "ceo",
+          "normalized_value": "Jane Doe"
+        }
+      ]
+    },
+    {
+      "filename": "acme_annual_report_2024.pdf",
+      "doc_date": "2024-12-31",
+      "expected_facts": [
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "ceo",
+          "normalized_value": "John Smith",
+          "validity_start": "2024-07-01",
+          "validity_end": null
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "revenue",
+          "normalized_value": {"value": 140000000, "currency": "USD"},
+          "validity_start": "2024-01-01",
+          "validity_end": "2024-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "headcount",
+          "normalized_value": 620,
+          "validity_start": "2024-12-31",
+          "validity_end": "2024-12-31"
+        }
+      ]
+    },
+    {
+      "filename": "acme_analyst_disputed_report_2023.pdf",
+      "doc_date": "2024-03-01",
+      "expected_facts": [
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "revenue",
+          "normalized_value": {"value": 85000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        }
+      ]
+    },
+    {
+      "filename": "acme_non_gaap_segment_report_2023.pdf",
+      "doc_date": "2024-01-20",
+      "expected_facts": [
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "revenue_north_america",
+          "normalized_value": {"value": 65000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        },
+        {
+          "entity": "Acme Technologies Inc.",
+          "attribute": "net_income_non_gaap",
+          "normalized_value": {"value": 24000000, "currency": "USD"},
+          "validity_start": "2023-01-01",
+          "validity_end": "2023-12-31"
+        }
+      ]
+    }
+  ],
+  "expected_relationships": [
+    {
+      "case": "Case 1: Exact Corroboration",
+      "doc_a": "acme_annual_report_2023.pdf",
+      "doc_b": "acme_fy23_press_release.pdf",
+      "attribute": "revenue",
+      "relationship_type": "CORROBORATES",
+      "reason": "Both documents state Acme Technologies Inc. FY2023 revenue is $100M."
+    },
+    {
+      "case": "Case 2: Temporal Supersession",
+      "doc_a": "acme_annual_report_2023.pdf",
+      "doc_b": "acme_annual_report_2024.pdf",
+      "attribute": "ceo",
+      "relationship_type": "SUPERSEDES",
+      "reason": "John Smith succeeded Jane Doe as CEO in July 2024."
+    },
+    {
+      "case": "Case 3: Genuine Contradiction",
+      "doc_a": "acme_annual_report_2023.pdf",
+      "doc_b": "acme_analyst_disputed_report_2023.pdf",
+      "attribute": "revenue",
+      "relationship_type": "CONTRADICTS",
+      "reason": "Direct conflict: $100M vs $85M for the exact same entity, attribute, and FY2023 timeframe."
+    },
+    {
+      "case": "Case 4: Contextual Non-Contradiction",
+      "doc_a": "acme_annual_report_2023.pdf",
+      "doc_b": "acme_non_gaap_segment_report_2023.pdf",
+      "attribute": "net_income_gaap",
+      "relationship_type": "REFINES",
+      "not_contradiction": true,
+      "reason": "GAAP net income ($18M) vs Adjusted Non-GAAP net income ($24M) are distinct accounting scopes, not a contradiction."
+    }
+  ]
+}
