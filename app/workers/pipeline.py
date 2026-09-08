@@ -513,12 +513,24 @@ class IngestionPipeline:
         return metrics
 
     def _simple_embedding(self, text: str, dim: int = 768) -> list[float]:
-        """Generate a deterministic normalized embedding vector."""
-        import struct
-        h = hashlib.sha256(text.lower().encode()).digest()
-        extended = h * ((dim * 4 // len(h)) + 1)
-        floats = struct.unpack(f'{dim}f', extended[:dim * 4])
-        magnitude = sum(f * f for f in floats) ** 0.5
-        if magnitude > 0:
-            return [f / magnitude for f in floats]
-        return [0.0] * dim
+        """Generate a real semantic embedding vector with sentence-transformers or semantic n-gram fallback."""
+        try:
+            from backend.embeddings import get_embedder
+            embedder = get_embedder()
+            vec = embedder.generate_embedding(text)
+            # If target dim is 768 and vector is 384 (MiniLM), pad or project smoothly
+            if len(vec) == dim:
+                return vec
+            elif len(vec) < dim:
+                # Tile / extend to match expected dimension
+                extended = (vec * ((dim // len(vec)) + 1))[:dim]
+                mag = sum(x * x for x in extended) ** 0.5
+                return [x / mag for x in extended] if mag > 0 else [0.0] * dim
+            else:
+                return vec[:dim]
+        except Exception as e:
+            logger.warning(f"Semantic embedder fallback in pipeline: {e}")
+            from backend.embeddings import EmbeddingGenerator
+            gen = EmbeddingGenerator()
+            return gen._hash_embedding(text, dim=dim)
+
