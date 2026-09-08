@@ -31,7 +31,14 @@ class TemporalReasoner:
         "replaced", "succeeded", "effective", "former", "new",
         "transitioned", "ceased", "terminated", "expired",
         "was previously", "previously held", "took over",
+        "revised", "restated", "updated", "corrected", "amended", "reclassified",
     ]
+
+    POINT_IN_TIME_PREDICATES = {
+        "ceo", "chief executive officer", "cfo", "chief financial officer",
+        "auditor", "headquarters", "status", "credit rating", "managing director",
+        "board member", "director",
+    }
 
     def check_supersession(self, fact_a, fact_b) -> SupersessionResult | None:
         """
@@ -48,11 +55,13 @@ class TemporalReasoner:
         if date_a == date_b:
             return None
 
-        # Check for state change language
-        has_change_a = self._has_state_change_language(fact_a.original_text)
-        has_change_b = self._has_state_change_language(fact_b.original_text)
+        # Check for state change language in original text or source quote
+        text_a = getattr(fact_a, "original_text", "") or ""
+        text_b = getattr(fact_b, "original_text", "") or ""
+        has_change_a = self._has_state_change_language(text_a)
+        has_change_b = self._has_state_change_language(text_b)
 
-        # If the later fact has state-change language → SUPERSEDES
+        # If the later fact has explicit state-change language → SUPERSEDES
         if date_b > date_a and has_change_b:
             return SupersessionResult(
                 is_supersession=True,
@@ -60,8 +69,8 @@ class TemporalReasoner:
                 supersession_date=date_b,
                 confidence=0.85,
                 explanation=(
-                    f"Fact B (dated {date_b}) appears to supersede Fact A (dated {date_a}). "
-                    f"Fact B contains state-change language indicating an update."
+                    f"Fact B (dated {date_b}) supersedes Fact A (dated {date_a}). "
+                    f"Fact B contains state-change language indicating an update/restatement."
                 ),
             )
         elif date_a > date_b and has_change_a:
@@ -71,36 +80,42 @@ class TemporalReasoner:
                 supersession_date=date_a,
                 confidence=0.85,
                 explanation=(
-                    f"Fact A (dated {date_a}) appears to supersede Fact B (dated {date_b}). "
-                    f"Fact A contains state-change language indicating an update."
+                    f"Fact A (dated {date_a}) supersedes Fact B (dated {date_b}). "
+                    f"Fact A contains state-change language indicating an update/restatement."
                 ),
             )
 
-        # If values differ and there's clear temporal ordering, it might still be supersession
-        # even without explicit state-change language (e.g., new CEO without "appointed")
-        if date_b > date_a:
-            # Later document might simply report the current state
-            return SupersessionResult(
-                is_supersession=True,
-                temporal_order="b_after_a",
-                supersession_date=date_b,
-                confidence=0.6,
-                explanation=(
-                    f"Fact B (dated {date_b}) is from a later document than Fact A (dated {date_a}). "
-                    f"The newer document may reflect an updated state."
-                ),
-            )
-        elif date_a > date_b:
-            return SupersessionResult(
-                is_supersession=True,
-                temporal_order="a_after_b",
-                supersession_date=date_a,
-                confidence=0.6,
-                explanation=(
-                    f"Fact A (dated {date_a}) is from a later document than Fact B (dated {date_b}). "
-                    f"The newer document may reflect an updated state."
-                ),
-            )
+        # If both facts refer to overlapping/same fiscal periods (e.g. FY23 vs FY23),
+        # conflicting numeric or performance values are a CONTRADICTION, NOT a silent supersession.
+        if self.periods_overlap(fact_a, fact_b):
+            return None
+
+        # Only point-in-time office/status facts with non-overlapping dates qualify as supersession without explicit keywords
+        pred_a = getattr(fact_a, "predicate", "").lower().strip()
+        pred_b = getattr(fact_b, "predicate", "").lower().strip()
+        is_point_in_time = any(p in pred_a or p in pred_b for p in self.POINT_IN_TIME_PREDICATES)
+
+        if is_point_in_time:
+            if date_b > date_a:
+                return SupersessionResult(
+                    is_supersession=True,
+                    temporal_order="b_after_a",
+                    supersession_date=date_b,
+                    confidence=0.75,
+                    explanation=(
+                        f"Fact B (dated {date_b}) is a later point-in-time status update than Fact A (dated {date_a})."
+                    ),
+                )
+            elif date_a > date_b:
+                return SupersessionResult(
+                    is_supersession=True,
+                    temporal_order="a_after_b",
+                    supersession_date=date_a,
+                    confidence=0.75,
+                    explanation=(
+                        f"Fact A (dated {date_a}) is a later point-in-time status update than Fact B (dated {date_b})."
+                    ),
+                )
 
         return None
 
@@ -125,7 +140,7 @@ class TemporalReasoner:
 
     def _get_effective_date(self, fact) -> date | None:
         """Get the most relevant date for temporal ordering."""
-        for attr in ["document_date", "fact_date_exact", "valid_from", "validity_start", "fact_time_start"]:
+        for attr in ["document_date", "fact_date_exact", "valid_from", "validity_start", "fact_time_start", "supersession_date"]:
             val = getattr(fact, attr, None)
             if val:
                 if isinstance(val, str):
@@ -136,6 +151,25 @@ class TemporalReasoner:
                         pass
                 elif isinstance(val, date):
                     return val
+
+        # Check fiscal year
+        fy = getattr(fact, "fiscal_year", None)
+        if fy:
+            import re
+            m = re.search(r"\b(20\d{2}|19\d{2})\b", str(fy))
+            if m:
+                y = int(m.group(1))
+                return date(y, 12, 31)
+
+        # Check time_period / text attributes
+        import re
+        for text_attr in ["time_period", "reporting_period_label", "original_text", "source_quote", "object_value"]:
+            txt = getattr(fact, text_attr, None)
+            if txt and isinstance(txt, str):
+                m = re.search(r"\b(20\d{2}|19\d{2})\b", txt)
+                if m:
+                    y = int(m.group(1))
+                    return date(y, 12, 31)
         return None
 
     def _has_state_change_language(self, text: str | None) -> bool:
@@ -144,3 +178,4 @@ class TemporalReasoner:
             return False
         text_lower = text.lower()
         return any(kw in text_lower for kw in self.STATE_CHANGE_KEYWORDS)
+

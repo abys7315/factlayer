@@ -112,12 +112,16 @@ class EvidenceResponse(BaseModel):
     validation_method: str | None = "exact_match"
     validation_score: float | None = 1.0
 
+    document_id: str | None = None
+    document_name: str | None = None
     model_config = {"from_attributes": True, "extra": "ignore"}
 
 
 class FactResponse(BaseModel):
     id: str
     document_id: str
+    document_filename: str | None = None
+    document_title: str | None = None
     entity_name: str | None = None
     subject: str | None = None
     attribute: str | None = None

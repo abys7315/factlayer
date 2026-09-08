@@ -10,6 +10,7 @@ import {
   IconClock,
   IconShieldCheck,
   IconAlertTriangle,
+  IconNetwork,
 } from './Icons';
 import { api } from '../api/client';
 import ReasoningTraceModal from './ReasoningTraceModal';
@@ -94,6 +95,14 @@ export default function DocumentDetail() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              to={`/graph?document_id=${encodeURIComponent(doc.id)}&from=documents`}
+              className="btn btn-secondary flex items-center gap-1.5"
+              title="Explore Document Knowledge Graph"
+            >
+              <IconNetwork className="w-4 h-4 text-indigo-400" />
+              <span>Explore in Graph</span>
+            </Link>
             <Link to={`/viewer/${doc.id}`} className="btn btn-primary">
               <IconEye className="w-4 h-4" />
               <span>Launch PDF Viewer & Overlay</span>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   IconGitCompare,
   IconFilter,
@@ -7,6 +8,7 @@ import {
   IconAlertTriangle,
   IconClock,
   IconCheckCircle,
+  IconNetwork,
 } from './Icons';
 import { api } from '../api/client';
 import ReasoningTraceModal from './ReasoningTraceModal';
@@ -16,24 +18,64 @@ export default function RelationshipExplorer() {
   const [loading, setLoading] = useState(true);
   const [selectedType, setSelectedType] = useState('');
   const [selectedRel, setSelectedRel] = useState(null);
+  const [liveSync, setLiveSync] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState('just now');
 
-  const fetchRelationships = async () => {
+  const fetchRelationships = async (isBackground = false) => {
     try {
-      setLoading(true);
+      if (!isBackground) setLoading(true);
       const params = { limit: 100 };
       if (selectedType) params.type = selectedType;
       const data = await api.listRelationships(params);
       setRelationships(data.items || []);
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err) {
       console.error('Failed to load relationships:', err);
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchRelationships();
   }, [selectedType]);
+
+  // Real-Time Live Sync via SSE stream + smart fallback polling
+  useEffect(() => {
+    if (!liveSync) return;
+
+    let es = null;
+    let pollTimer = null;
+
+    try {
+      es = api.getEventSource();
+      es.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.has_new_relationships) {
+            fetchRelationships(true);
+          }
+        } catch (e) {
+          // Keep stream alive
+        }
+      };
+      es.onerror = () => {
+        if (es) es.close();
+      };
+    } catch (err) {
+      console.debug('SSE unavailable, using real-time polling fallback');
+    }
+
+    // Smart background poll every 4s to guarantee real-time updates
+    pollTimer = setInterval(() => {
+      fetchRelationships(true);
+    }, 4000);
+
+    return () => {
+      if (es) es.close();
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [liveSync, selectedType]);
 
   const relationshipTypes = [
     'CONTRADICTS',
@@ -49,15 +91,32 @@ export default function RelationshipExplorer() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="page-title">Cross-Document Relationship Engine</h1>
-          <p className="page-subtitle">
+          <div className="flex items-center gap-3">
+            <h1 className="page-title">Cross-Document Relationship Engine</h1>
+            <div className="live-indicator cursor-pointer" onClick={() => setLiveSync(!liveSync)} title="Click to toggle Real-Time Live Sync">
+              <span className={`live-dot ${liveSync ? '' : 'bg-gray-400'}`}></span>
+              <span>{liveSync ? 'Real-Time Sync Active' : 'Live Sync Paused'}</span>
+            </div>
+          </div>
+          <p className="page-subtitle mt-1">
             Autonomous multi-hypothesis relationship graph linking facts via contradiction, supersession, support, and refinement.
+            <span className="text-muted ml-2 text-xs font-mono">• Updated {lastSyncTime}</span>
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={fetchRelationships}>
-          <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/graph?preset=relationships${selectedType ? `&relationship_type=${encodeURIComponent(selectedType)}` : ''}&from=relationships`}
+            className="btn btn-primary btn-sm flex items-center gap-1.5"
+            title="Visualize these relationships in the Knowledge Graph"
+          >
+            <IconNetwork className="w-4 h-4" />
+            <span>Explore in Graph</span>
+          </Link>
+          <button className="btn btn-ghost" onClick={() => fetchRelationships(false)}>
+            <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Tabs / Pills */}
@@ -142,17 +201,27 @@ export default function RelationshipExplorer() {
                 </p>
 
                 {/* Footer Action */}
-                <div className="pt-2 border-t border-border flex items-center justify-between">
+                <div className="pt-2 border-t border-border flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[10px] text-muted font-mono">
                     ID: {rel.id?.substring(0, 8)}...
                   </span>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setSelectedRel(rel)}
-                  >
-                    <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>View Reasoning Trace</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/graph?relationship_id=${encodeURIComponent(rel.id)}&preset=relationships&from=relationships`}
+                      className="btn btn-secondary btn-sm flex items-center gap-1.5 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
+                      title="Focus Knowledge Graph on this relationship"
+                    >
+                      <IconNetwork className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>View in Graph</span>
+                    </Link>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setSelectedRel(rel)}
+                    >
+                      <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>View Reasoning Trace</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             );

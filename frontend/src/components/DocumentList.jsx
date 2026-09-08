@@ -11,10 +11,10 @@ import {
   IconAlertTriangle,
   IconExternalLink,
   IconSparkles,
+  IconNetwork,
 } from './Icons';
 import { api } from '../api/client';
-import ProcessingProgressModal from './ProcessingProgressModal';
-import RealtimeProcessingBanner from './RealtimeProcessingBanner';
+import SteppedPipelineProgressBar from './SteppedPipelineProgressBar';
 
 export default function DocumentList() {
   const [documents, setDocuments] = useState([]);
@@ -99,21 +99,21 @@ export default function DocumentList() {
             Upload enterprise PDFs to automatically parse, classify sections, extract candidate facts, and compute cross-document contradictions.
           </p>
         </div>
-        <button className="btn btn-ghost self-start md:self-auto" onClick={fetchDocs}>
-          <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <Link
+            to="/graph?from=documents"
+            className="btn btn-secondary btn-sm flex items-center gap-1.5"
+            title="Visualize Document-Fact relationships in Knowledge Graph"
+          >
+            <IconNetwork className="w-4 h-4" />
+            <span>Explore in Graph</span>
+          </Link>
+          <button className="btn btn-ghost" onClick={fetchDocs}>
+            <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
-
-      {/* Realtime Preprocessing Stepper Banner */}
-      {activeProcessingDoc && (
-        <RealtimeProcessingBanner
-          documentId={activeProcessingDoc.documentId}
-          filename={activeProcessingDoc.filename}
-          onComplete={() => fetchDocs()}
-          onDismiss={() => setActiveProcessingDoc(null)}
-        />
-      )}
 
       {/* Drag & Drop Upload Zone */}
       <div
@@ -125,18 +125,18 @@ export default function DocumentList() {
       >
         <div className="upload-zone-content">
           <div className="upload-icon-wrapper">
-            <IconUpload className="w-8 h-8 text-indigo-400" />
+            <IconUpload className="w-8 h-8 text-blue-600" />
           </div>
           <div className="text-center space-y-1">
-            <h3 className="text-base font-semibold text-primary">
+            <h3 className="text-base font-bold text-slate-900">
               {uploading ? 'Ingesting Document...' : 'Drag & Drop PDF document here, or browse'}
             </h3>
-            <p className="text-xs text-muted">
-              Supports 10-K filings, earnings reports, contracts, multi-page PDFs with tables & charts
+            <p className="text-xs text-slate-500">
+              Supports SEC filings, 10-K reports, IPO prospectuses, and multi-page corporate PDFs with tables
             </p>
           </div>
           <label className="btn btn-primary cursor-pointer mt-2">
-            <span>Choose PDF File</span>
+            <span>Choose PDF File →</span>
             <input
               type="file"
               accept=".pdf"
@@ -148,9 +148,19 @@ export default function DocumentList() {
         </div>
       </div>
 
-      {uploadProgress && (
-        <div className="p-3 rounded-lg bg-indigo-950/70 border border-indigo-600/40 text-xs font-mono text-indigo-200 flex items-center gap-2">
-          <IconSparkles className="w-4 h-4 text-indigo-400 animate-pulse" />
+      {/* ── Stepped Pipeline Progress Bar right below Upload (Dribbble Ref) ── */}
+      {activeProcessingDoc && (
+        <SteppedPipelineProgressBar
+          documentId={activeProcessingDoc.documentId}
+          filename={activeProcessingDoc.filename}
+          onComplete={() => fetchDocs()}
+          onDismiss={() => setActiveProcessingDoc(null)}
+        />
+      )}
+
+      {uploadProgress && !activeProcessingDoc && (
+        <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs font-mono text-blue-700 flex items-center gap-2">
+          <IconSparkles className="w-4 h-4 text-blue-600 animate-pulse" />
           <span>{uploadProgress}</span>
         </div>
       )}
@@ -251,6 +261,14 @@ export default function DocumentList() {
                     <td className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Link
+                          to={`/graph?document_id=${encodeURIComponent(doc.id)}&from=documents`}
+                          className="btn btn-secondary btn-sm flex items-center gap-1 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
+                          title={`Explore Knowledge Graph for ${doc.filename}`}
+                        >
+                          <IconNetwork className="w-3.5 h-3.5" />
+                          <span>Graph</span>
+                        </Link>
+                        <Link
                           to={`/viewer/${doc.id}`}
                           className="btn btn-secondary btn-sm"
                           title="Interactive PDF Viewer with Evidence Bounding Boxes"
@@ -281,16 +299,6 @@ export default function DocumentList() {
           </table>
         </div>
       </div>
-
-      {/* 11-Stage Interactive Preprocessing Progress Modal */}
-      {activeProcessingDoc && (
-        <ProcessingProgressModal
-          documentId={activeProcessingDoc.documentId}
-          filename={activeProcessingDoc.filename}
-          onClose={() => setActiveProcessingDoc(null)}
-          onComplete={fetchDocs}
-        />
-      )}
     </div>
   );
 }

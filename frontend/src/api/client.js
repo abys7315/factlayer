@@ -123,6 +123,35 @@ export const api = {
     return request(`/relationships/${relId}`);
   },
 
+  async recomputeRelationships() {
+    return request('/relationships/recompute', {
+      method: 'POST',
+    });
+  },
+
+  // Knowledge Graph
+  async getGraph(params = {}) {
+    const query = new URLSearchParams();
+    if (params.fact_id) query.append('fact_id', params.fact_id);
+    if (params.entity_name) query.append('entity_name', params.entity_name);
+    if (params.document_id) query.append('document_id', params.document_id);
+    if (params.doc_id) query.append('doc_id', params.doc_id);
+    if (params.relationship_id) query.append('relationship_id', params.relationship_id);
+    if (params.rel_id) query.append('rel_id', params.rel_id);
+    if (params.relationship_type) query.append('relationship_type', params.relationship_type);
+    if (params.preset) query.append('preset', params.preset);
+    if (params.limit !== undefined) query.append('limit', params.limit);
+    return request(`/graph?${query.toString()}`);
+  },
+
+  async getGraphEntities(limit = 50) {
+    return request(`/graph/entities?limit=${limit}`);
+  },
+
+  async getGraphStats() {
+    return request('/graph/stats');
+  },
+
   // Viewer & PDF
   getPdfUrl(docId) {
     return `${PROXY_API_BASE}/viewer/${docId}/pdf`;
@@ -135,5 +164,14 @@ export const api = {
   async getViewerOverlay(docId, factId = null) {
     const query = factId ? `?fact_id=${factId}` : '';
     return request(`/viewer/${docId}/evidence-overlay${query}`);
+  },
+
+  // Real-time Event Stream (SSE)
+  getEventSource() {
+    try {
+      return new EventSource(`${PROXY_API_BASE}/events/stream`);
+    } catch {
+      return new EventSource(`${DIRECT_API_BASE}/events/stream`);
+    }
   },
 };

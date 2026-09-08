@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import json
 import asyncio
@@ -64,15 +65,28 @@ class TableFactExtractor:
         self._model = None
 
     def _init_gemini_model(self):
-        if self._model is None and HAS_GENAI and self.settings.GOOGLE_API_KEY:
-            try:
-                if hasattr(genai, "configure"):
-                    genai.configure(api_key=self.settings.GOOGLE_API_KEY)
-                    self._model = genai.GenerativeModel("gemini-1.5-flash")
-                elif hasattr(genai, "Client"):
-                    self._model = genai.Client(api_key=self.settings.GOOGLE_API_KEY)
-            except Exception as e:
-                logger.warning(f"Could not init table Gemini model: {e}")
+        if self._model is not None:
+            return
+        api_key = self.settings.GOOGLE_API_KEY or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            return
+
+        try:
+            from google import genai
+            self._model = genai.Client(api_key=api_key)
+            self._sdk_type = "google-genai"
+            return
+        except Exception:
+            pass
+
+        try:
+            import google.generativeai as genai_legacy
+            genai_legacy.configure(api_key=api_key)
+            self._model = genai_legacy.GenerativeModel("gemini-3.6-flash")
+            self._sdk_type = "google.generativeai"
+            return
+        except Exception:
+            pass
 
     async def extract_facts(self, context_window: ContextWindow) -> ExtractionResult:
         """Extract facts from a table context window."""
@@ -85,7 +99,7 @@ class TableFactExtractor:
 
         extracted = False
         # 1. Try LLM if configured
-        if self._model and self.settings.GOOGLE_API_KEY:
+        if self._model:
             try:
                 llm_facts = await self._extract_with_llm(text)
                 if llm_facts:
@@ -112,31 +126,53 @@ class TableFactExtractor:
         facts = []
         prompt = f"{TABLE_EXTRACTION_PROMPT}\n\nTABLE DATA:\n{text}\n\nJSON Output:"
 
+        models_to_try = [
+            os.getenv("EXTRACTION_MODEL", "gemini-3.6-flash"),
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-3.5-flash",
+        ]
+
         async with self._semaphore:
-            if hasattr(self._model, "generate_content_async"):
-                response = await self._model.generate_content_async(prompt)
-                resp_text = response.text
-            elif hasattr(self._model, "models"):
+            resp_text = None
+            if hasattr(self, "_sdk_type") and self._sdk_type == "google-genai" and self._model:
                 loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self._model.models.generate_content(
-                        model=self.settings.EXTRACTION_MODEL,
-                        contents=prompt,
-                    )
-                )
-                resp_text = response.text
-            else:
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self._model.generate_content(prompt)
-                )
-                resp_text = response.text
+                for model_name in models_to_try:
+                    try:
+                        response = await loop.run_in_executor(
+                            None,
+                            lambda: self._model.models.generate_content(
+                                model=model_name,
+                                contents=prompt,
+                            )
+                        )
+                        resp_text = response.text
+                        break
+                    except Exception:
+                        continue
+            elif self._model:
+                try:
+                    if hasattr(self._model, "generate_content_async"):
+                        response = await self._model.generate_content_async(prompt)
+                        resp_text = response.text
+                    else:
+                        loop = asyncio.get_event_loop()
+                        response = await loop.run_in_executor(
+                            None,
+                            lambda: self._model.generate_content(prompt)
+                        )
+                        resp_text = response.text
+                except Exception:
+                    pass
 
             if resp_text:
                 cleaned = re.sub(r"^```json\s*", "", resp_text.strip(), flags=re.MULTILINE)
                 cleaned = re.sub(r"^```\s*$", "", cleaned.strip(), flags=re.MULTILINE)
+                # Locate JSON array
+                start_idx = cleaned.find("[")
+                end_idx = cleaned.rfind("]")
+                if start_idx != -1 and end_idx != -1:
+                    cleaned = cleaned[start_idx:end_idx + 1]
                 data = json.loads(cleaned)
                 if isinstance(data, list):
                     for item in data:
@@ -150,7 +186,20 @@ class TableFactExtractor:
         facts = []
         block = getattr(context_window, "target_block", None)
         doc_ctx = getattr(context_window, "doc_context", None)
+        header_text = getattr(context_window, "document_context_header", "")
+        
         entity = (getattr(doc_ctx, "organization", None) or "Organization") if doc_ctx else "Organization"
+        if entity == "Organization" and header_text:
+            m_org = re.search(r"Organization:\s*([^\n|]+)", header_text)
+            if m_org and m_org.group(1).strip() not in ("Organization", "(Please scan this QR Code to view the Prospectus)"):
+                entity = m_org.group(1).strip()
+            else:
+                m_doc = re.search(r"Document:\s*([^\n|]+)", header_text)
+                if m_doc:
+                    cand = m_doc.group(1).split("-")[0].split("_")[0].strip()
+                    if cand and len(cand) > 2 and "scan" not in cand.lower():
+                        entity = cand
+
         currency = (getattr(doc_ctx, "default_currency", None) or "USD") if doc_ctx else "USD"
 
         # Check structured_content on block
@@ -165,19 +214,29 @@ class TableFactExtractor:
                 for row_line in lines[1:]:
                     cells = [c.strip() for c in row_line.split("|") if c.strip()]
                     if len(cells) >= 2:
-                        metric_name = cells[0]
+                        metric_name = cells[0].strip()
+                        # Skip table titles, footnotes, sources, notes
+                        if re.match(r"^(Table\s+\d+|Source:|Note:|Footnote:|1/|2/|3/|Total\s*$)", metric_name, re.IGNORECASE):
+                            continue
+                        if len(metric_name) < 2 or metric_name.startswith(("[", "(Table")):
+                            continue
+
                         for col_idx, cell_val in enumerate(cells[1:], 1):
-                            if cell_val in ("—", "-", "N/A", "n/a", "nil", ""):
+                            if cell_val in ("—", "-", "N/A", "n/a", "nil", "", "..."):
                                 continue
                             col_header = headers[col_idx] if col_idx < len(headers) else f"Period {col_idx}"
+                            if "unlabeled" in col_header.lower() or "column" in col_header.lower():
+                                continue
+
                             num_val = self._parse_numeric(cell_val)
+                            fy = col_header if ("20" in col_header or "FY" in col_header.upper()) else None
                             
-                            fy = col_header if "20" in col_header or "FY" in col_header.upper() else None
-                            
+                            clean_pred = f"{metric_name} ({col_header})" if col_header and not col_header.startswith("Period") else metric_name
+
                             facts.append(
                                 ExtractedFact(
                                     subject=entity,
-                                    predicate=f"{metric_name} ({col_header})",
+                                    predicate=clean_pred,
                                     object_value=cell_val,
                                     object_numeric=num_val,
                                     unit=currency if "$" in cell_val or "$" in col_header else ("%" if "%" in cell_val else None),
@@ -196,17 +255,25 @@ class TableFactExtractor:
                 if not row_keys:
                     continue
                 first_key = row_keys[0]
-                metric_name = str(row_dict[first_key])
+                metric_name = str(row_dict[first_key]).strip()
+                if re.match(r"^(Table\s+\d+|Source:|Note:|Footnote:|1/|2/|3/)", metric_name, re.IGNORECASE):
+                    continue
+
                 for col_name in row_keys[1:]:
                     cell_val = str(row_dict[col_name]).strip()
-                    if cell_val in ("—", "-", "N/A", "n/a", "nil", ""):
+                    if cell_val in ("—", "-", "N/A", "n/a", "nil", "", "..."):
                         continue
+                    if "unlabeled" in col_name.lower() or "column" in col_name.lower():
+                        continue
+
                     num_val = self._parse_numeric(cell_val)
-                    fy = col_name if "20" in col_name or "FY" in col_name.upper() else None
+                    fy = col_name if ("20" in col_name or "FY" in col_name.upper()) else None
+                    clean_pred = f"{metric_name} ({col_name})" if col_name and not col_name.startswith("Col") else metric_name
+
                     facts.append(
                         ExtractedFact(
                             subject=entity,
-                            predicate=f"{metric_name} ({col_name})",
+                            predicate=clean_pred,
                             object_value=cell_val,
                             object_numeric=num_val,
                             unit=currency if "$" in cell_val or "$" in col_name else None,

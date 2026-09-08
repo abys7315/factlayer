@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
 from app.models.database import init_db, close_db
 from app.storage.qdrant_repository import QdrantRepository
-from app.api.routes import documents, facts, relationships, viewer
+from app.api.routes import documents, facts, relationships, viewer, events, graph
 
 
 @asynccontextmanager
@@ -52,7 +52,9 @@ for prefix in ["/api", "/api/v1"]:
     app.include_router(documents.router, prefix=prefix, tags=["Documents"])
     app.include_router(facts.router, prefix=prefix, tags=["Facts"])
     app.include_router(relationships.router, prefix=prefix, tags=["Relationships"])
+    app.include_router(graph.router, prefix=prefix, tags=["Graph"])
     app.include_router(viewer.router, prefix=prefix, tags=["Viewer"])
+    app.include_router(events.router, prefix=prefix, tags=["Events"])
 
 # Ensure upload directory exists
 settings.upload_path

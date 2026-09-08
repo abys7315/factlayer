@@ -254,7 +254,7 @@ class IngestionPipeline:
                     metrics["llm_tokens"] += text_result.tokens_used if isinstance(text_result.tokens_used, int) else 0
 
                     for fact_data in text_result.facts:
-                        extracted_facts_data.append(("text", fact_data, parsed_page))
+                        extracted_facts_data.append(("text", fact_data, parsed_page, block))
 
                 # Extract from tables
                 for parsed_page, block, window in table_windows:
@@ -263,7 +263,7 @@ class IngestionPipeline:
                     metrics["llm_tokens"] += table_result.tokens_used if isinstance(table_result.tokens_used, int) else 0
 
                     for fact_data in table_result.facts:
-                        extracted_facts_data.append(("table", fact_data, parsed_page))
+                        extracted_facts_data.append(("table", fact_data, parsed_page, block))
 
                 metrics["stages_completed"].append("EXTRACTING")
                 await repo.update_document(doc_uuid, last_successful_stage="EXTRACTING", current_stage="VALIDATION")
@@ -273,7 +273,7 @@ class IngestionPipeline:
                 logger.info(f"pipeline.validation doc={document_id} raw_facts={len(extracted_facts_data)}")
 
                 validated_facts = []
-                for source_type, fact_data, parsed_page in extracted_facts_data:
+                for source_type, fact_data, parsed_page, block in extracted_facts_data:
                     evidence_text = fact_data.evidence_excerpt or fact_data.original_text or fact_data.object_value
                     source_text = parsed_page.raw_text if parsed_page else ""
                     if parsed_page and getattr(parsed_page, "tables", None):
@@ -283,11 +283,11 @@ class IngestionPipeline:
 
                     validation = self.evidence_validator.validate(evidence_text, source_text)
                     if validation.is_valid:
-                        validated_facts.append((source_type, fact_data, parsed_page, validation))
+                        validated_facts.append((source_type, fact_data, parsed_page, block, validation))
                         metrics["evidence_validated"] += 1
                     else:
                         # Soft validation fallback
-                        validated_facts.append((source_type, fact_data, parsed_page, validation))
+                        validated_facts.append((source_type, fact_data, parsed_page, block, validation))
                         metrics["evidence_validated"] += 1
 
                 metrics["stages_completed"].append("VALIDATION")
@@ -298,7 +298,7 @@ class IngestionPipeline:
                 logger.info(f"pipeline.normalization doc={document_id} valid_facts={len(validated_facts)}")
 
                 stored_facts = []
-                for source_type, fact_data, parsed_page, validation in validated_facts:
+                for source_type, fact_data, parsed_page, block, validation in validated_facts:
                     numeric_val, detected_unit = self.normalizer.normalize_numeric(fact_data.object_value)
                     if numeric_val is not None and fact_data.object_numeric is None:
                         fact_data.object_numeric = numeric_val
@@ -371,7 +371,11 @@ class IngestionPipeline:
 
                         page_id = page_map.get(parsed_page.page_number if parsed_page else 1)
                         if page_id:
-                            # Estimate bbox from first matching block or default
+                            # Dynamically resolve exact block bounding box on page
+                            resolved_bbox = self._resolve_evidence_bbox(fact_data, parsed_page, block)
+                            pw = float(parsed_page.width) if (parsed_page and parsed_page.width) else 612.0
+                            ph = float(parsed_page.height) if (parsed_page and parsed_page.height) else 792.0
+
                             await repo.create_evidence(
                                 fact_id=fact.id,
                                 document_id=doc_uuid,
@@ -380,12 +384,12 @@ class IngestionPipeline:
                                 source_type=source_type,
                                 excerpt=fact_data.evidence_excerpt or fact_data.original_text or fact_data.object_value,
                                 page_number=parsed_page.page_number if parsed_page else 1,
-                                page_width=parsed_page.width if parsed_page else 612,
-                                page_height=parsed_page.height if parsed_page else 792,
-                                bbox_x0=50.0,
-                                bbox_y0=100.0,
-                                bbox_x1=parsed_page.width - 50.0 if parsed_page else 562.0,
-                                bbox_y1=180.0,
+                                page_width=pw,
+                                page_height=ph,
+                                bbox_x0=resolved_bbox[0],
+                                bbox_y0=resolved_bbox[1],
+                                bbox_x1=resolved_bbox[2],
+                                bbox_y1=resolved_bbox[3],
                                 is_validated=True,
                                 validation_method=validation.method or "exact_match",
                                 validation_score=validation.score or 1.0,
@@ -394,9 +398,53 @@ class IngestionPipeline:
                     stored_facts.append(fact)
 
                 metrics["stages_completed"].append("NORMALIZING")
+
+                # ── Stage 8: RESOLVING ────────────────────────────────
+                logger.info(f"pipeline.resolving doc={document_id} facts={len(stored_facts)}")
+                org_context = {"organization": doc_context.organization, "geography": doc_context.geography}
+                for fact in stored_facts:
+                    res = self.entity_resolver.resolve(fact.subject, context=org_context)
+                    canonical = res.canonical_name or fact.subject
+
+                    entity = await repo.get_entity_by_name(canonical)
+                    if not entity and res.entity_id:
+                        try:
+                            entity = await repo.session.get(Entity, uuid.UUID(res.entity_id))
+                        except Exception:
+                            entity = None
+                    if not entity:
+                        entity = await repo.find_entity_by_alias(fact.subject)
+                    if not entity and doc_context.organization:
+                        entity = await repo.find_entity_by_alias(doc_context.organization)
+
+                    if not entity:
+                        entity = await repo.create_entity(
+                            canonical_name=canonical,
+                            entity_type="ORG",
+                            description=f"Entity {canonical}",
+                        )
+                        await repo.create_alias(
+                            entity_id=entity.id,
+                            alias=fact.subject,
+                            source_document_id=doc_uuid,
+                            confidence=1.0,
+                        )
+                        if doc_context.organization and doc_context.organization.lower() != canonical.lower():
+                            await repo.create_alias(
+                                entity_id=entity.id,
+                                alias=doc_context.organization,
+                                source_document_id=doc_uuid,
+                                confidence=0.95,
+                            )
+
+                    fact.entity_id = entity.id
+                    self.entity_resolver.register_alias(fact.subject, str(entity.id), canonical)
+                    if canonical != fact.subject:
+                        self.entity_resolver.register_alias(canonical, str(entity.id), canonical)
+
                 metrics["stages_completed"].append("RESOLVING")
                 metrics["stages_completed"].append("DEDUPLICATING")
-                await repo.update_document(doc_uuid, last_successful_stage="NORMALIZING", current_stage="EMBEDDING")
+                await repo.update_document(doc_uuid, last_successful_stage="RESOLVING", current_stage="EMBEDDING")
                 await session.commit()
 
                 # ── Stage 10: EMBEDDING ───────────────────────────────
@@ -434,11 +482,14 @@ class IngestionPipeline:
                         f"{fact.subject} {fact.predicate} {fact.object_value}"
                     )
                     candidates = await retriever.find_candidates(
-                        fact, embedding=embedding, exclude_document_id=str(doc_uuid),
+                        fact, embedding=embedding, exclude_document_id=None,
                     )
 
-                    for candidate in candidates[:10]:
-                        other_fact = await repo.get_fact(uuid.UUID(candidate.fact_id))
+                    for candidate in candidates[:15]:
+                        other_uuid = uuid.UUID(candidate.fact_id)
+                        if other_uuid == fact.id:
+                            continue
+                        other_fact = await repo.get_fact(other_uuid)
                         if not other_fact:
                             continue
 
@@ -447,6 +498,22 @@ class IngestionPipeline:
                             continue
 
                         comparison = self.comparison_engine.compare(fact, other_fact)
+
+                        # Stage 11b: Ambiguity resolution with LLM reasoner
+                        if comparison.is_ambiguous:
+                            try:
+                                llm_res = await self.llm_reasoner.reason(
+                                    fact, other_fact,
+                                    context={"doc_a": str(doc_uuid), "doc_b": str(other_fact.document_id)}
+                                )
+                                if llm_res and llm_res.get("relationship_type") and llm_res["relationship_type"] != "UNRELATED":
+                                    comparison.relationship_type = llm_res["relationship_type"]
+                                    comparison.confidence = float(llm_res.get("confidence", comparison.confidence))
+                                    comparison.explanation = llm_res.get("explanation", comparison.explanation)
+                                    comparison.classification_method = "llm_reasoner"
+                            except Exception as e:
+                                logger.debug(f"LLM reasoner skipped for ambiguous pair: {e}")
+
                         if comparison.relationship_type == "UNRELATED":
                             continue
 
@@ -533,4 +600,42 @@ class IngestionPipeline:
             from backend.embeddings import EmbeddingGenerator
             gen = EmbeddingGenerator()
             return gen._hash_embedding(text, dim=dim)
+
+    def _resolve_evidence_bbox(
+        self,
+        fact_data: Any,
+        parsed_page: Any,
+        source_block: Any = None,
+    ) -> tuple[float, float, float, float]:
+        """
+        Dynamically resolves the precise bounding box for an extracted fact on the page.
+        Matches evidence excerpt, original text, or object value against parsed page blocks.
+        """
+        if parsed_page and getattr(parsed_page, "blocks", None):
+            search_snippets = []
+            for text_field in (
+                getattr(fact_data, "evidence_excerpt", None),
+                getattr(fact_data, "original_text", None),
+                getattr(fact_data, "object_value", None),
+            ):
+                if text_field and isinstance(text_field, str) and len(text_field.strip()) >= 3:
+                    search_snippets.append(text_field.strip().lower())
+
+            for snippet in search_snippets:
+                # 1. Exact or substring match in parsed page blocks
+                for blk in parsed_page.blocks:
+                    blk_text = (blk.content or "").lower()
+                    if snippet in blk_text or (len(snippet) > 20 and snippet[:20] in blk_text):
+                        if hasattr(blk, "bbox") and blk.bbox and len(blk.bbox) == 4:
+                            return (float(blk.bbox[0]), float(blk.bbox[1]), float(blk.bbox[2]), float(blk.bbox[3]))
+
+        # 2. Use source block bbox if available
+        if source_block and hasattr(source_block, "bbox") and source_block.bbox and len(source_block.bbox) == 4:
+            return (float(source_block.bbox[0]), float(source_block.bbox[1]), float(source_block.bbox[2]), float(source_block.bbox[3]))
+
+        # 3. Dynamic fallback based on page dimensions
+        pw = float(parsed_page.width) if (parsed_page and getattr(parsed_page, "width", None)) else 612.0
+        ph = float(parsed_page.height) if (parsed_page and getattr(parsed_page, "height", None)) else 792.0
+        return (50.0, ph * 0.15, pw - 50.0, ph * 0.30)
+
 

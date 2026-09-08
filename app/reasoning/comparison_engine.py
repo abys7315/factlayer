@@ -10,6 +10,8 @@ from app.config import get_settings
 from app.models.enums import RelationshipType
 from app.reasoning.temporal_reasoner import TemporalReasoner
 from app.reasoning.context_reasoner import ContextReasoner
+from app.normalization.predicate_resolver import PredicateResolver
+from app.normalization.entity_resolver import EntityResolver
 
 
 @dataclass
@@ -35,12 +37,22 @@ class ComparisonEngine:
         self.settings = get_settings()
         self.temporal = TemporalReasoner()
         self.context = ContextReasoner()
+        self.predicate_resolver = PredicateResolver()
+        self.entity_resolver = EntityResolver()
 
     def compare(self, fact_a, fact_b) -> ComparisonResult:
         """
         Compare two facts and determine their relationship.
         Returns ComparisonResult with structured reasoning trace.
         """
+        # Step 0: Ignore dummy unlabelled table column coordinates or placeholder claims
+        if self._is_dummy_claim(fact_a) or self._is_dummy_claim(fact_b):
+            return ComparisonResult(
+                relationship_type=RelationshipType.UNRELATED.value,
+                confidence=0.99,
+                explanation="Placeholder or raw table column coordinate cannot be compared as a factual claim",
+            )
+
         trace: dict[str, Any] = {}
 
         # Step 1: Context alignment check
@@ -116,12 +128,16 @@ class ComparisonEngine:
         return result
 
     def _check_same_entity(self, a, b) -> bool:
-        if a.entity_id and b.entity_id:
-            return a.entity_id == b.entity_id
-        return a.subject.lower().strip() == b.subject.lower().strip()
+        if a.entity_id and b.entity_id and a.entity_id == b.entity_id:
+            return True
+        if a.subject.lower().strip() == b.subject.lower().strip():
+            return True
+        return self.entity_resolver.are_same_entity(a.subject, b.subject)
 
     def _check_same_predicate(self, a, b) -> bool:
-        return a.predicate.lower().strip() == b.predicate.lower().strip()
+        if a.predicate.lower().strip() == b.predicate.lower().strip():
+            return True
+        return self.predicate_resolver.are_same_predicate(a.predicate, b.predicate)
 
     def _check_same_period(self, a, b) -> bool:
         if a.fiscal_year and b.fiscal_year:
@@ -239,6 +255,33 @@ class ComparisonEngine:
                 explanation=f"Identical values: '{val_a}'",
             )
 
+        # Numeric safety check: if strings contain numbers and they differ, do NOT fuzzy-match them
+        import re
+        nums_a = re.findall(r"\b\d+(?:[.,]\d+)*\b", norm_a)
+        nums_b = re.findall(r"\b\d+(?:[.,]\d+)*\b", norm_b)
+        if (nums_a or nums_b) and nums_a != nums_b:
+            return ComparisonResult(
+                relationship_type=RelationshipType.CONTRADICTS.value,
+                confidence=0.85,
+                explanation=f"Conflicting numeric figures in text: '{val_a}' vs '{val_b}'",
+                is_ambiguous=True,
+            )
+
+        # Check fuzzy equivalence for non-numeric phrasing (e.g. PwC vs PricewaterhouseCoopers)
+        try:
+            from rapidfuzz import fuzz
+            ratio = fuzz.ratio(norm_a, norm_b)
+        except ImportError:
+            import difflib
+            ratio = difflib.SequenceMatcher(None, norm_a, norm_b).ratio() * 100.0
+
+        if ratio >= 88.0:
+            return ComparisonResult(
+                relationship_type=RelationshipType.CORROBORATES.value,
+                confidence=0.90,
+                explanation=f"Equivalent values with minor wording difference: '{val_a}' ≈ '{val_b}' ({ratio:.1f}% match)",
+            )
+
         # Different categorical values — could be contradiction or supersession
         return ComparisonResult(
             relationship_type=RelationshipType.CONTRADICTS.value,
@@ -246,3 +289,19 @@ class ComparisonEngine:
             explanation=f"Different values: '{val_a}' vs '{val_b}'",
             is_ambiguous=True,  # Flag for LLM review
         )
+
+    def _is_dummy_claim(self, f) -> bool:
+        pred = getattr(f, "predicate", "") or ""
+        pred_clean = pred.strip()
+        import re
+        # Reject predicates that are purely parenthesized table headers or years without a metric name
+        if pred_clean.startswith("(") and (pred_clean.endswith(")") or len(pred_clean) < 30):
+            return True
+        if pred_clean.upper() in {"HEADING", "FOOTNOTE", "COLUMN", "UNLABELED", "UNKNOWN", "N/A", "NONE", "", "PERIOD"}:
+            return True
+        if re.search(r"^\s*\(?\s*Column[_\s]*\d+\s*\)?\s*$", pred_clean, re.IGNORECASE):
+            return True
+        subj = getattr(f, "subject", "") or ""
+        if subj.lower().strip() in {"organization", "entity", "unknown"} and not getattr(f, "entity_id", None):
+            return True
+        return False

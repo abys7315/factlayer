@@ -26,8 +26,8 @@ class Settings(BaseSettings):
 
     # ── LLM ───────────────────────────────────────────────────────────
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-    EXTRACTION_MODEL: str = os.getenv("EXTRACTION_MODEL", "gemini-2.5-flash")
-    REASONING_MODEL: str = os.getenv("REASONING_MODEL", "gemini-2.5-pro")
+    EXTRACTION_MODEL: str = os.getenv("EXTRACTION_MODEL", "gemini-3.6-flash")
+    REASONING_MODEL: str = os.getenv("REASONING_MODEL", "gemini-3.6-flash")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
     EMBEDDING_DIMENSIONS: int = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
 

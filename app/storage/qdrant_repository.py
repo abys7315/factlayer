@@ -63,7 +63,8 @@ class QdrantRepository:
         embedding: list[float],
         payload: dict[str, Any],
     ):
-        """Upsert fact embedding with metadata payload."""
+        """Upsert fact embedding with metadata payload in Qdrant and memory cache."""
+        self._memory_points[fact_id] = {"vector": embedding, "payload": payload}
         client = self._get_client()
         if client is not None and PointStruct is not None:
             try:
@@ -77,10 +78,8 @@ class QdrantRepository:
                         )
                     ],
                 )
-                return
             except Exception:
                 pass
-        self._memory_points[fact_id] = {"vector": embedding, "payload": payload}
 
     async def search_similar_facts(
         self,
@@ -88,15 +87,14 @@ class QdrantRepository:
         entity_name: str | None = None,
         category: str | None = None,
         limit: int = 10,
-        score_threshold: float = 0.7,
+        score_threshold: float = 0.55,
         exclude_document_id: str | None = None,
         **kwargs,
     ) -> list[dict[str, Any]]:
-        """Find facts semantically similar to the query."""
+        """Find facts semantically similar to the query using real cosine similarity."""
         client = self._get_client()
         if client is not None:
             try:
-                # Qdrant search
                 results = client.search(
                     collection_name=self._collection,
                     query_vector=query_embedding,
@@ -116,22 +114,42 @@ class QdrantRepository:
                     })
                     if len(out) >= limit:
                         break
-                return out
+                if out:
+                    return out
             except Exception:
                 pass
 
-        # Fallback memory search
-        out = []
-        for k, v in self._memory_points.items():
-            payload = v.get("payload", {})
+        # Real in-memory dense cosine similarity search
+        import numpy as np
+        q_vec = np.array(query_embedding, dtype=np.float32)
+        q_norm = float(np.linalg.norm(q_vec))
+
+        scored_candidates = []
+        for fid, pt in self._memory_points.items():
+            payload = pt.get("payload", {})
             if exclude_document_id and payload.get("document_id") == exclude_document_id:
                 continue
-            out.append({
-                "id": k,
-                "fact_id": k,
-                "score": 0.95,
-                "payload": payload,
-            })
-            if len(out) >= limit:
-                break
-        return out
+
+            v = pt.get("vector", [])
+            if not v:
+                continue
+
+            p_vec = np.array(v, dtype=np.float32)
+            p_norm = float(np.linalg.norm(p_vec))
+
+            if q_norm > 0 and p_norm > 0:
+                sim = float(np.dot(q_vec, p_vec) / (q_norm * p_norm))
+            else:
+                sim = 0.0
+
+            if sim >= score_threshold:
+                scored_candidates.append({
+                    "id": fid,
+                    "fact_id": fid,
+                    "score": round(sim, 4),
+                    "payload": payload,
+                })
+
+        scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+        return scored_candidates[:limit]
+

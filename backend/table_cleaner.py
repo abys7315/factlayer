@@ -18,10 +18,10 @@ def strip_table_artifacts(text: str) -> str:
     cleaned = text
     for pattern in ARTIFACT_PATTERNS:
         cleaned = pattern.sub("", cleaned)
-    # collapse leftover double spaces / stray punctuation from the removal
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    # collapse leftover double spaces / stray punctuation from the removal (preserving newlines)
+    cleaned = re.sub(r"[^\S\r\n]{2,}", " ", cleaned)
     cleaned = re.sub(r"\(\s*\)", "", cleaned)
-    cleaned = re.sub(r"\s+([.,:;])", r"\1", cleaned)
+    cleaned = re.sub(r"[^\S\r\n]+([.,:;])", r"\1", cleaned)
     return cleaned.strip()
 
 

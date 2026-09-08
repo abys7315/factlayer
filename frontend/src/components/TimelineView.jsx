@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   IconClock,
   IconRefreshCw,
@@ -6,6 +7,7 @@ import {
   IconArrowRight,
   IconCheckCircle,
   IconLayers,
+  IconNetwork,
 } from './Icons';
 import { api } from '../api/client';
 import ReasoningTraceModal from './ReasoningTraceModal';
@@ -44,10 +46,20 @@ export default function TimelineView() {
             Track how entity attributes evolve across reporting periods, fiscal years, and document updates.
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={fetchSupersedes}>
-          <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/graph?preset=supersedes&from=timeline"
+            className="btn btn-primary btn-sm flex items-center gap-1.5"
+            title="Visualize supersessions and temporal evolution in the Knowledge Graph"
+          >
+            <IconNetwork className="w-4 h-4" />
+            <span>Explore in Graph</span>
+          </Link>
+          <button className="btn btn-ghost" onClick={fetchSupersedes}>
+            <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Timeline List */}
@@ -121,14 +133,27 @@ export default function TimelineView() {
                 {rel.explanation}
               </div>
 
-              <div className="flex justify-end pt-1">
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setSelectedRel(rel)}
-                >
-                  <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Inspect Reasoning Trace</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <span className="text-[10px] font-mono text-muted">
+                  Relationship UUID: {rel.id}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={`/graph?relationship_id=${encodeURIComponent(rel.id)}&preset=supersedes&from=timeline`}
+                    className="btn btn-secondary btn-sm flex items-center gap-1.5 text-amber-500 border-amber-300/40 hover:bg-amber-500/10"
+                    title="Focus Knowledge Graph on this supersession pair"
+                  >
+                    <IconNetwork className="w-3.5 h-3.5 text-amber-400" />
+                    <span>View in Graph</span>
+                  </Link>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSelectedRel(rel)}
+                  >
+                    <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Inspect Reasoning Trace</span>
+                  </button>
+                </div>
               </div>
             </div>
           ))

@@ -34,34 +34,27 @@ logger = logging.getLogger(__name__)
 # improves classification because it can't skip straight to a lazy guess.
 
 EXTRACTION_PROMPT_TEMPLATE = """
-You are extracting factual claims from a document for a fact-checking system.
+You are extracting factual claims from a financial, statutory, or corporate document for a precision fact-checking engine.
 
-Given the following text (from page {page_number}), extract every distinct
-factual claim -- numerical or semantic. Do not invent facts not present in
-the text. Err on the side of extracting too much rather than too little.
+Given the following text (from page {page_number}), extract every distinct factual claim -- numerical or semantic.
+Do not invent facts not present in the text. Err on the side of extracting too much rather than too little.
 
-If the text contains placeholder column labels like "[unlabeled column —
-infer from context]", use the surrounding row/column context to understand
-what that value represents -- do NOT include the placeholder text itself
-in your output.
-
-Do NOT extract section headings, table captions, or document boilerplate
-(QR codes, disclaimers, page footers) as facts -- only extract substantive
-claims with actual values or assertions.
+CRITICAL INSTRUCTIONS:
+- ATOMIC DECOMPOSITION: Split composite assertions into distinct atomic facts.
+- FINANCIAL PRECISION: Resolve multiplier scales (millions, billions, thousands, crore, lakh, bps). Handle negative values in parentheses (e.g. `(15.2)` -> -15.2).
+- ACCOUNTING BASIS: Distinguish GAAP vs Non-GAAP, Restated vs As-Reported, Pro-forma vs Actual.
+- VERBATIM GROUNDING: "source_quote" must be an exact verbatim excerpt from the document text.
+- If the text contains placeholder column labels like "[unlabeled column — infer from context]", use the surrounding row/column context to understand what that value represents -- do NOT include the placeholder text itself in your output.
+- Do NOT extract section headings, table captions, or document boilerplate (QR codes, disclaimers, page footers) as facts -- only extract substantive claims with actual values or assertions.
 
 For each fact, output a JSON object with these fields, IN THIS ORDER:
-- "source_quote": the exact verbatim sentence(s) from the text supporting this fact
-- "fact_text": a clear, self-contained restatement of the fact (never include
-   placeholder labels like "Column_N" or "Unnamed" in this text)
-- "fact_type_reasoning": one sentence explaining WHY this fact belongs to the
-   category you are about to assign -- base this on the fact's actual content,
-   not its position in a table or document section
-- "fact_type": your best inferred category, consistent with your reasoning above
-   (e.g. "financial", "regulatory", "personnel", "date", "location", "legal" —
-   or invent a new category if none fit)
-- "value": the numeric value if applicable, else null
-- "unit": the unit if applicable (e.g. "INR crore", "%", "years"), else null
-- "time_period": any date, fiscal year, or period this fact is scoped to, else null
+- "source_quote": the exact verbatim sentence(s) or table row from the text supporting this fact
+- "fact_text": a clear, self-contained restatement of the fact (never include placeholder labels like "Column_N" or "Unnamed" in this text)
+- "fact_type_reasoning": one sentence explaining WHY this fact belongs to the category you are about to assign based on its substantive content
+- "fact_type": your best inferred category, consistent with your reasoning above ("financial", "governance", "personnel", "regulatory", "macroeconomic", "operational", "legal")
+- "value": the numeric value if applicable (float), else null
+- "unit": the unit if applicable (e.g. "USD", "INR crore", "%", "employees"), else null
+- "time_period": any date, fiscal year, or period this fact is scoped to (e.g. "FY2023", "December 31, 2021"), else null
 - "page_number": {page_number}
 
 Return ONLY a JSON array of these objects. No preamble, no markdown formatting.
@@ -73,12 +66,12 @@ TEXT:
 """
 
 # ── PASS 1: Directive Exhaustive Prompt ──────────────────────────────────────────
-EXTRACTION_PROMPT_PASS1 = """You are a precision fact extraction engine for financial, enterprise, and corporate documents.
+EXTRACTION_PROMPT_PASS1 = """You are a precision fact extraction engine for financial filings (10-K, 10-Q, 8-K), statutory reports (IMF Article IV, Annual Reports, Press Releases), and corporate disclosures.
 Extract EVERY factual claim from this text/table — do not skip anything, even minor line items. Include:
-- Every numeric figure with its label, unit, and time period
-- Every named entity claim (people, roles, dates of appointment/resignation, subsidiaries)
+- Every numeric figure with its label, unit, multiplier scale, and time period
+- Every named entity claim (people, executive roles, dates of appointment/resignation, subsidiaries, country entities)
 - Every explicit relationship stated (e.g. "X is a subsidiary of Y", "Company A acquired Company B")
-- Footnote disclosures, accounting basis (GAAP vs Non-GAAP), and period definitions
+- Footnote disclosures, accounting basis (GAAP vs Non-GAAP, Ind AS, IFRS), and period definitions
 
 CRITICAL INSTRUCTIONS:
 - Err on the side of extracting too much rather than too little — a downstream system will filter noise later.
@@ -96,7 +89,7 @@ For each fact, output a JSON object with these fields, IN THIS EXACT ORDER:
 - "source_quote": the exact verbatim sentence or table row from the text supporting this fact
 - "fact_text": a clear, self-contained restatement of the fact (never include placeholder labels like "Column_N" or "Unnamed")
 - "fact_type_reasoning": one sentence explaining WHY this fact belongs to the category you are assigning based on its substantive content
-- "fact_type": inferred category ("financial", "regulatory", "personnel", "governance", "operational", "relationship", "legal")
+- "fact_type": inferred category ("financial", "governance", "personnel", "regulatory", "macroeconomic", "operational", "relationship", "legal")
 - "value": the numeric value if applicable (float), else null
 - "unit": the unit if applicable (e.g. "INR million", "INR", "USD", "%", "employees"), else null
 - "time_period": date, fiscal year, or quarter this fact is scoped to (e.g. "December 31, 2021", "FY2023"), else null
@@ -135,7 +128,7 @@ Output ONLY a JSON array of any ADDITIONAL or MISSED facts with fields:
     "source_quote": "...",
     "fact_text": "...",
     "fact_type_reasoning": "one sentence explaining why this fact belongs to the category",
-    "fact_type": "financial" | "regulatory" | "personnel" | "governance" | "operational" | "relationship" | "legal",
+    "fact_type": "financial" | "governance" | "personnel" | "regulatory" | "macroeconomic" | "operational" | "relationship" | "legal",
     "value": float or null,
     "unit": str or null,
     "time_period": str or null,
@@ -146,7 +139,7 @@ If no facts were missed, return an empty array: []
 """
 
 
-def extract_facts_from_block(client: Any, block: dict, model: str = "gemini-2.0-flash") -> List[Dict[str, Any]]:
+def extract_facts_from_block(client: Any, block: dict, model: str = "gemini-3.6-flash") -> List[Dict[str, Any]]:
     """
     block: one item from group_chunks_into_blocks(), containing
            {"text", "bbox", "page_number"}
@@ -349,10 +342,10 @@ class FactExtractor:
 
     def _call_gemini(self, prompt: str) -> str:
         models_to_try = [
-            os.getenv("EXTRACTION_MODEL", "gemini-flash-latest"),
-            "gemini-2.5-flash",
+            os.getenv("EXTRACTION_MODEL", "gemini-3.6-flash"),
+            "gemini-3.6-flash",
             "gemini-flash-latest",
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
         ]
         unique_models = []
         for m in models_to_try:

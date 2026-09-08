@@ -190,9 +190,10 @@ class RelationshipClassifier:
         return self.classify(fact_a, fact_b)
 
     def _call_gemini(self, prompt: str) -> str:
+        model_name = os.getenv("REASONING_MODEL", "gemini-3.6-flash")
         if hasattr(self, "sdk_type") and self.sdk_type == "google-genai" and self.client:
             response = self.client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=model_name,
                 contents=prompt,
             )
             return response.text
@@ -200,7 +201,7 @@ class RelationshipClassifier:
             response = self.legacy_model.generate_content(prompt)
             return response.text
         elif self.client and hasattr(self.client, "models"):
-            response = self.client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            response = self.client.models.generate_content(model=model_name, contents=prompt)
             return response.text
         raise RuntimeError("No LLM client configured")
 

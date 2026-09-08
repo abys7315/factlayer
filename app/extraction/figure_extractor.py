@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import json
 import asyncio
 import time
@@ -40,15 +41,28 @@ class FigureFactExtractor:
         self._model = None
 
     def _init_gemini_model(self):
-        if self._model is None and HAS_GENAI and self.settings.GOOGLE_API_KEY:
-            try:
-                if hasattr(genai, "configure"):
-                    genai.configure(api_key=self.settings.GOOGLE_API_KEY)
-                    self._model = genai.GenerativeModel("gemini-1.5-flash")
-                elif hasattr(genai, "Client"):
-                    self._model = genai.Client(api_key=self.settings.GOOGLE_API_KEY)
-            except Exception as e:
-                logger.warning(f"Could not init figure Gemini model: {e}")
+        if self._model is not None:
+            return
+        api_key = self.settings.GOOGLE_API_KEY or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            return
+
+        try:
+            from google import genai
+            self._model = genai.Client(api_key=api_key)
+            self._sdk_type = "google-genai"
+            return
+        except Exception:
+            pass
+
+        try:
+            import google.generativeai as genai_legacy
+            genai_legacy.configure(api_key=api_key)
+            self._model = genai_legacy.GenerativeModel("gemini-3.6-flash")
+            self._sdk_type = "google.generativeai"
+            return
+        except Exception:
+            pass
 
     async def classify_figure(self, image_data: bytes, image_ext: str = "png") -> str:
         """Classify a figure image into categories."""

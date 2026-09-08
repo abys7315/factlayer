@@ -163,7 +163,7 @@ class TableParser:
         if len(cleaned_matrix) < 2:
             return None
 
-        is_healthy, health_reason = self.check_table_sanity(cleaned_matrix)
+        is_healthy, health_reason = self.check_table_sanity(cleaned_matrix, bbox)
 
         headers = cleaned_matrix[0]
         # Standardize empty headers
@@ -192,17 +192,23 @@ class TableParser:
             raw_cells=cleaned_matrix,
         )
 
-    def check_table_sanity(self, cleaned_matrix: List[List[str]]) -> Tuple[bool, str]:
+    def check_table_sanity(
+        self,
+        cleaned_matrix: List[List[str]],
+        bbox: Optional[Tuple[float, float, float, float]] = None,
+    ) -> Tuple[bool, str]:
         """
         Sanity check table integrity:
-        - Row count >= 2
-        - Column count >= 2 and uniform
+        - At least 1 header + at least 2 real data rows (len >= 3)
+        - Column count >= 2
         - Empty header ratio <= 60%
-        - Overall empty cell ratio <= 65%
-        - Max average characters per cell <= 250 (flags mashed text blocks)
+        - Overall empty cell ratio <= 50%
+        - Max average characters per cell <= 120 (flags mashed text blocks)
+        - Chart dimension & aspect ratio checks (tall height with sparse rows)
+        - Mostly numeric or concise short-text data cells in body
         """
-        if len(cleaned_matrix) < 2:
-            return False, "Less than 2 rows"
+        if len(cleaned_matrix) < 3:
+            return False, "Less than 2 real data rows"
 
         col_counts = [len(r) for r in cleaned_matrix]
         max_cols = max(col_counts)
@@ -212,7 +218,7 @@ class TableParser:
         # Header check
         headers = cleaned_matrix[0]
         empty_headers = sum(1 for h in headers if not h.strip())
-        if (empty_headers / len(headers)) > 0.6:
+        if len(headers) > 0 and (empty_headers / len(headers)) > 0.60:
             return False, "High empty header ratio (> 60%)"
 
         # Overall empty cell check (if more than 50% cells are empty, structural table is broken/sparse)
@@ -223,15 +229,34 @@ class TableParser:
 
         # Mashed text paragraph detection (flags when individual cell > 250 chars or avg > 120 chars)
         total_len = sum(len(c) for r in cleaned_matrix for c in r)
-        max_cell_len = max(len(c) for r in cleaned_matrix for c in r) if total_cells > 0 else 0
+        max_cell_len = max((len(c) for r in cleaned_matrix for c in r), default=0)
         avg_cell_len = total_len / max(1, total_cells)
         if max_cell_len > 250 or avg_cell_len > 120:
             return False, "Mashed text blocks in cells (max > 250 or avg > 120 chars)"
+
+        # Check chart aspect ratio & row height anomalies
+        if bbox and len(bbox) == 4:
+            tbl_height = max(1.0, float(bbox[3]) - float(bbox[1]))
+            num_rows = len(cleaned_matrix)
+            avg_row_height = tbl_height / max(1, num_rows)
+
+            if (tbl_height > 100.0 and avg_row_height > 40.0) or (tbl_height > 120.0 and num_rows <= 3):
+                return False, f"Chart-like dimensions detected (height={tbl_height:.1f}pt, avg_row_height={avg_row_height:.1f}pt for {num_rows} rows)"
 
         # Check for row length variance (extreme jaggedness)
         min_cols = min(col_counts)
         if max_cols - min_cols > 4:
             return False, "High row column count variance"
+
+        # Body data cells validation
+        data_rows = cleaned_matrix[1:]
+        data_cells = [c.strip() for r in data_rows for c in r if c.strip()]
+        if not data_cells:
+            return False, "No data cells in body rows"
+
+        numeric_or_short_cells = sum(1 for cell in data_cells if re.search(r'[\$€£₹¥\d%]', cell) or len(cell) <= 35)
+        if (numeric_or_short_cells / len(data_cells)) < 0.50:
+            return False, "Less than 50% numeric or short-text data cells"
 
         return True, "Healthy"
 

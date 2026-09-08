@@ -9,6 +9,7 @@ import FactExplorer from './components/FactExplorer';
 import RelationshipExplorer from './components/RelationshipExplorer';
 import ContradictionView from './components/ContradictionView';
 import TimelineView from './components/TimelineView';
+import KnowledgeGraphView from './components/KnowledgeGraphView';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
               <Route path="/relationships" element={<RelationshipExplorer />} />
               <Route path="/contradictions" element={<ContradictionView />} />
               <Route path="/timeline" element={<TimelineView />} />
+              <Route path="/graph" element={<KnowledgeGraphView />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

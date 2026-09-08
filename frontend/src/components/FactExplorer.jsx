@@ -8,6 +8,7 @@ import {
   IconRefreshCw,
   IconSparkles,
   IconShieldCheck,
+  IconNetwork,
 } from './Icons';
 import { api } from '../api/client';
 
@@ -74,10 +75,20 @@ export default function FactExplorer() {
             Search, filter, and inspect canonical facts extracted from ingested documents with complete normalized attributes.
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={fetchFacts}>
-          <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/graph?from=facts${searchEntity ? `&entity=${encodeURIComponent(searchEntity)}` : ''}`}
+            className="btn btn-secondary btn-sm flex items-center gap-1.5"
+            title="Explore Facts in Knowledge Graph"
+          >
+            <IconNetwork className="w-4 h-4 text-purple-400" />
+            <span>Explore in Graph</span>
+          </Link>
+          <button className="btn btn-ghost" onClick={fetchFacts}>
+            <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Controls Bar */}
@@ -196,6 +207,13 @@ export default function FactExplorer() {
                           <IconShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
                           <span>Evidence</span>
                         </button>
+                        <Link
+                          to={`/graph?fact_id=${fact.id}&entity=${encodeURIComponent(fact.entity_name || '')}&doc_id=${fact.document_id || ''}&from=facts`}
+                          className="btn btn-ghost btn-sm text-purple-400 hover:text-purple-300"
+                          title="Explore in Knowledge Graph"
+                        >
+                          <IconNetwork className="w-3.5 h-3.5" />
+                        </Link>
                         {fact.document_id && (
                           <Link
                             to={`/viewer/${fact.document_id}?fact_id=${fact.id}`}

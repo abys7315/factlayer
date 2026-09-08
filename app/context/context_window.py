@@ -159,7 +159,7 @@ class ContextWindowBuilder:
         page: ParsedPage,
         all_blocks: list[ParsedBlock],
     ) -> str:
-        """Gather surrounding context: headings, footnotes, nearby text."""
+        """Gather surrounding context: headings, footnotes, nearby paragraphs."""
         context_parts: list[str] = []
         chars_used = 0
 
@@ -194,8 +194,8 @@ class ContextWindowBuilder:
                         context_parts.append(text)
                         chars_used += len(text)
 
-            # Include immediately adjacent text blocks
-            elif block.block_type == BlockType.TEXT.value:
+            # Include immediately adjacent paragraph/text blocks for context
+            elif block.block_type in (BlockType.PARAGRAPH.value, BlockType.TEXT.value):
                 seq_dist = abs(block.sequence_number - target_seq)
                 if seq_dist <= 2:
                     text = block.content[:500]

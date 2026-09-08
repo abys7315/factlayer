@@ -103,14 +103,16 @@ class PDFParser:
         text_quality = self._assess_text_quality(raw_text, width, height)
 
         # Extract tables via PyMuPDF with sanity checking and vision fallback
+        # Discard misdetected charts (< 2 real data rows or chart dimensions) so they fall through to text blocks
         tables = self._extract_tables(fitz_page, page_number)
-        table_bboxes = [t.bbox for t in tables]
+        valid_tables = [t for t in tables if not t.is_garbled]
+        table_bboxes = [t.bbox for t in valid_tables]
 
-        # Extract text blocks
+        # Extract text blocks (only valid tabular grids suppress text overlap)
         blocks = self._extract_blocks(fitz_page, raw_text, table_bboxes)
 
-        # Add table blocks
-        for i, table in enumerate(tables):
+        # Add valid table blocks
+        for i, table in enumerate(valid_tables):
             table_block = ParsedBlock(
                 block_type=BlockType.TABLE.value,
                 content=table.markdown or self._table_to_text(table),
@@ -123,7 +125,7 @@ class PDFParser:
                     "units_detected": table.units_detected,
                     "raw_cells": table.raw_cells,
                     "markdown": table.markdown,
-                    "is_garbled": table.is_garbled,
+                    "is_garbled": False,
                 },
             )
             blocks.append(table_block)
@@ -142,7 +144,7 @@ class PDFParser:
             height=height,
             raw_text=raw_text,
             blocks=blocks,
-            tables=tables,
+            tables=valid_tables,
             figures=figures,
             text_quality_score=text_quality,
         )
@@ -198,32 +200,43 @@ class PDFParser:
                     clean_tables = []
                     for vt in vision_tables:
                         parsed = self._structure_table(vt.raw_cells, vt.bbox or (0, 0, fitz_page.rect.width, fitz_page.rect.height))
-                        if parsed:
-                            parsed.is_garbled = False
+                        if parsed and not parsed.is_garbled:
                             clean_tables.append(parsed)
                     if clean_tables:
                         return clean_tables
             except Exception:
                 pass
 
-        return tables
+        # Return only healthy, non-garbled tables
+        return [t for t in tables if not t.is_garbled]
 
-    def _is_table_healthy(self, cleaned_matrix: list[list[str]]) -> tuple[bool, str]:
-        """Sanity check table integrity to flag broken/garbled tables."""
-        if len(cleaned_matrix) < 2:
-            return False, "Less than 2 rows"
+    def _is_table_healthy(
+        self,
+        cleaned_matrix: list[list[str]],
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Sanity check table integrity to flag broken/garbled tables and misdetected charts:
+        - At least 1 header row + at least 2 real data rows (len >= 3)
+        - At least 2 columns (max_cols >= 2)
+        - Not matching chart-like aspect ratio (tall height with sparse rows)
+        - Body data cells are mostly numeric / short text (not paragraphs)
+        - Empty cell ratio <= 50%, empty header ratio <= 60%
+        """
+        if len(cleaned_matrix) < 3:
+            return False, "Fewer than 2 real data rows (requires header + >= 2 data rows)"
 
         col_counts = [len(r) for r in cleaned_matrix]
         max_cols = max(col_counts)
         min_cols = min(col_counts)
 
         if max_cols < 2:
-            return False, "Single column detected"
+            return False, "Single column detected (likely paragraph text)"
 
         # Check header non-empty ratio
         headers = cleaned_matrix[0]
         empty_headers = sum(1 for h in headers if not h.strip())
-        if empty_headers / len(headers) > 0.6:
+        if len(headers) > 0 and (empty_headers / len(headers)) > 0.60:
             return False, "More than 60% empty headers"
 
         # Check total cells empty ratio (50% threshold)
@@ -234,10 +247,37 @@ class PDFParser:
 
         # Check average and max cell text length
         total_len = sum(len(c) for r in cleaned_matrix for c in r)
-        max_cell_len = max(len(c) for r in cleaned_matrix for c in r) if total_cells > 0 else 0
+        max_cell_len = max((len(c) for r in cleaned_matrix for c in r), default=0)
         avg_cell_len = total_len / max(1, total_cells)
         if max_cell_len > 250 or avg_cell_len > 120:
             return False, "Mashed text block detected in cells (max > 250 or avg > 120 chars)"
+
+        # Check chart aspect ratio & row height anomalies
+        if bbox and len(bbox) == 4:
+            tbl_height = max(1.0, float(bbox[3]) - float(bbox[1]))
+            num_rows = len(cleaned_matrix)
+            avg_row_height = tbl_height / max(1, num_rows)
+
+            # In PDFs, standard table rows are 10-35 points tall.
+            # If the detected box is tall (> 100pt) with few rows (avg row height > 40pt or height > 120pt for <= 3 rows),
+            # it is a graphical chart/plot area rather than a dense tabular grid.
+            if (tbl_height > 100.0 and avg_row_height > 40.0) or (tbl_height > 120.0 and num_rows <= 3):
+                return False, f"Chart-like dimensions detected (height={tbl_height:.1f}pt, avg_row_height={avg_row_height:.1f}pt for {num_rows} rows)"
+
+        # Verify body data cells: financial tables contain numeric/metric or short-text values
+        data_rows = cleaned_matrix[1:]
+        data_cells = [c.strip() for r in data_rows for c in r if c.strip()]
+        if not data_cells:
+            return False, "No data cells in body rows"
+
+        numeric_or_short_cells = 0
+        for cell in data_cells:
+            # Check for numbers, currency symbols, percentages, or concise labels <= 35 chars
+            if re.search(r'[\$€£₹¥\d%]', cell) or len(cell) <= 35:
+                numeric_or_short_cells += 1
+
+        if (numeric_or_short_cells / len(data_cells)) < 0.50:
+            return False, "Less than 50% numeric or short-text data cells (likely mashed paragraph text)"
 
         return True, "Healthy"
 
@@ -252,7 +292,7 @@ class PDFParser:
         if len(cleaned_matrix) < 2:
             return None
 
-        is_healthy, health_reason = self._is_table_healthy(cleaned_matrix)
+        is_healthy, health_reason = self._is_table_healthy(cleaned_matrix, bbox)
 
         header_row = cleaned_matrix[0]
         headers = [header_row]
@@ -309,42 +349,195 @@ class PDFParser:
             lines.append(" | ".join(str(v) for v in r.values()))
         return "\n".join(lines)
 
+    # ── Line merging constants ──
+    # Maximum horizontal gap (points) between two blocks to consider them in the same column
+    COLUMN_X_TOLERANCE = 10.0
+    # Maximum vertical gap (points) between consecutive lines to merge them
+    LINE_GAP_TOLERANCE = 25.0
+    # Minimum right-edge alignment tolerance for same-column detection
+    COLUMN_RIGHT_TOLERANCE = 30.0
+
     def _extract_blocks(self, fitz_page, raw_text: str, table_bboxes: list[tuple[float, float, float, float]]) -> list[ParsedBlock]:
-        """Extract text blocks using PyMuPDF get_text('blocks')."""
-        blocks: list[ParsedBlock] = []
+        """
+        Extract text blocks using PyMuPDF, then merge scattered single-line
+        blocks into coherent paragraph blocks based on column alignment and
+        vertical proximity.
+
+        Many PDFs (especially government reports) produce one raw block per
+        typographic line.  Without merging, each 40-char fragment gets
+        classified and sent to the LLM independently, which destroys
+        extraction quality.
+        """
+        # Step 1: Collect raw line-level blocks, filtering table overlaps
+        raw_lines: list[dict] = []
         raw_blocks = fitz_page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, block_type)
 
-        seq = 0
         for rb in raw_blocks:
-            if len(rb) >= 5:
-                x0, y0, x1, y1, text = float(rb[0]), float(rb[1]), float(rb[2]), float(rb[3]), rb[4]
-                text = text.strip()
-                if not text:
-                    continue
+            if len(rb) < 5:
+                continue
+            # block_type == 1 means image block in PyMuPDF
+            if len(rb) >= 7 and rb[6] == 1:
+                continue
+            x0, y0, x1, y1 = float(rb[0]), float(rb[1]), float(rb[2]), float(rb[3])
+            text = rb[4] if isinstance(rb[4], str) else ""
+            text = text.strip()
+            if not text:
+                continue
+            bbox = (x0, y0, x1, y1)
+            # Skip blocks that overlap with detected tables
+            overlaps_table = any(
+                self._bbox_overlap(bbox, t_bbox) > 0.5
+                for t_bbox in table_bboxes
+            )
+            if overlaps_table:
+                continue
+            raw_lines.append({"text": text, "bbox": bbox})
 
-                bbox = (x0, y0, x1, y1)
+        # Step 2: Merge consecutive lines from the same column into paragraphs
+        merged_groups = self._merge_lines_into_paragraphs(raw_lines, fitz_page.rect.height)
 
-                # Check if block overlaps with table
-                overlaps_table = any(
-                    self._bbox_overlap(bbox, t_bbox) > 0.5
-                    for t_bbox in table_bboxes
+        # Step 3: Build ParsedBlocks from merged groups
+        blocks: list[ParsedBlock] = []
+        for seq, group in enumerate(merged_groups):
+            btype = self._classify_block_text(group["text"], group["bbox"], fitz_page.rect.height)
+            blocks.append(
+                ParsedBlock(
+                    block_type=btype,
+                    content=group["text"],
+                    bbox=group["bbox"],
+                    sequence_number=seq,
                 )
-                if overlaps_table:
-                    continue
-
-                btype = self._classify_block_text(text, bbox, fitz_page.rect.height)
-
-                blocks.append(
-                    ParsedBlock(
-                        block_type=btype,
-                        content=text,
-                        bbox=bbox,
-                        sequence_number=seq,
-                    )
-                )
-                seq += 1
-
+            )
         return blocks
+
+    def _merge_lines_into_paragraphs(
+        self,
+        raw_lines: list[dict],
+        page_height: float,
+    ) -> list[dict]:
+        """
+        Merge consecutive single-line blocks that share column alignment
+        and have small vertical gaps into coherent paragraph blocks.
+
+        Handles two-column layouts by detecting left-edge alignment:
+        lines whose x0 values are within COLUMN_X_TOLERANCE of each other
+        are considered part of the same column.
+        """
+        if not raw_lines:
+            return []
+
+        # Sort by vertical position (top to bottom), then left to right
+        sorted_lines = sorted(raw_lines, key=lambda r: (r["bbox"][1], r["bbox"][0]))
+
+        # Group lines into columns first, then merge within each column
+        # Detect column x-positions by clustering left edges
+        x_positions = sorted(set(round(r["bbox"][0], 0) for r in sorted_lines))
+        columns: list[float] = []
+        for x in x_positions:
+            if not columns or abs(x - columns[-1]) > self.COLUMN_X_TOLERANCE:
+                columns.append(x)
+
+        # Assign each line to a column
+        column_lines: dict[int, list[dict]] = {i: [] for i in range(len(columns))}
+        for line in sorted_lines:
+            x0 = line["bbox"][0]
+            best_col = 0
+            best_dist = abs(x0 - columns[0])
+            for ci, cx in enumerate(columns):
+                dist = abs(x0 - cx)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_col = ci
+            column_lines[best_col].append(line)
+
+        # Merge within each column: consecutive lines with small vertical gaps
+        merged: list[dict] = []
+        for col_idx in sorted(column_lines.keys()):
+            lines = column_lines[col_idx]
+            if not lines:
+                continue
+            # Sort column lines by y-position
+            lines.sort(key=lambda r: r["bbox"][1])
+
+            current_group = {
+                "texts": [lines[0]["text"]],
+                "x0": lines[0]["bbox"][0],
+                "y0": lines[0]["bbox"][1],
+                "x1": lines[0]["bbox"][2],
+                "y1": lines[0]["bbox"][3],
+            }
+
+            for i in range(1, len(lines)):
+                prev_bottom = current_group["y1"]
+                cur_top = lines[i]["bbox"][1]
+                cur_x0 = lines[i]["bbox"][0]
+                vertical_gap = cur_top - prev_bottom
+
+                # Check if this line belongs to the same paragraph:
+                # - Small vertical gap (consecutive line)
+                # - Similar left-edge alignment (same column/indent)
+                left_aligned = abs(cur_x0 - current_group["x0"]) < self.COLUMN_X_TOLERANCE
+                # Allow slightly indented continuation (e.g. paragraph number like "II.5.18\t")
+                indent_continuation = (cur_x0 > current_group["x0"]) and (cur_x0 - current_group["x0"]) < 50
+
+                same_paragraph = (
+                    vertical_gap <= self.LINE_GAP_TOLERANCE
+                    and vertical_gap >= -2  # Lines don't go backwards
+                    and (left_aligned or indent_continuation)
+                )
+
+                # If this line starts with a new paragraph number (e.g. "II.5.20"),
+                # start a new group even if it's close to the previous line
+                new_para_marker = re.match(
+                    r'^(?:II?\.\d+\.\d+|[IVX]+\.\d+\.\d+|\d+\.\d+\.\d+)\s',
+                    lines[i]["text"]
+                )
+
+                if same_paragraph and not new_para_marker:
+                    current_group["texts"].append(lines[i]["text"])
+                    current_group["x0"] = min(current_group["x0"], cur_x0)
+                    current_group["x1"] = max(current_group["x1"], lines[i]["bbox"][2])
+                    current_group["y1"] = lines[i]["bbox"][3]
+                else:
+                    # Finalize current group
+                    merged.append({
+                        "text": " ".join(current_group["texts"]),
+                        "bbox": (
+                            current_group["x0"],
+                            current_group["y0"],
+                            current_group["x1"],
+                            current_group["y1"],
+                        ),
+                    })
+                    current_group = {
+                        "texts": [lines[i]["text"]],
+                        "x0": lines[i]["bbox"][0],
+                        "y0": lines[i]["bbox"][1],
+                        "x1": lines[i]["bbox"][2],
+                        "y1": lines[i]["bbox"][3],
+                    }
+
+            # Don't forget the last group
+            merged.append({
+                "text": " ".join(current_group["texts"]),
+                "bbox": (
+                    current_group["x0"],
+                    current_group["y0"],
+                    current_group["x1"],
+                    current_group["y1"],
+                ),
+            })
+
+        # Sort final merged blocks by reading order: column by column (left-to-right), top-to-bottom within each column
+        is_multi_column = len(columns) > 1 and (max(columns) - min(columns)) > 120
+        if is_multi_column:
+            def reading_order_key(g):
+                col_idx = min(range(len(columns)), key=lambda ci: abs(g["bbox"][0] - columns[ci]))
+                return (col_idx, g["bbox"][1])
+            merged.sort(key=reading_order_key)
+        else:
+            merged.sort(key=lambda g: (g["bbox"][1], g["bbox"][0]))
+        return merged
 
     def _classify_block_text(self, text: str, bbox: tuple[float, float, float, float], page_height: float) -> str:
         """Classify block into heading, footnote, header, footer, or body text."""
@@ -361,8 +554,18 @@ class PDFParser:
         if (re.match(r"^(\*|\d{1,2}\s|[a-z]\))\s+", first_line) and len(text) < 200) or "source:" in first_line.lower():
             return BlockType.FOOTNOTE.value
 
-        # Heading
-        if len(text) < 120 and (len(lines) <= 2) and (text.isupper() or re.match(r"^(Section|\d+(\.\d+)*)\s+", first_line) or not text.endswith(".")):
+        # Heading: short text, all-caps or section label, NOT a merged paragraph
+        # A merged paragraph will be > 120 chars so it falls through correctly
+        word_count = len(text.split())
+        if (
+            len(text) < 120
+            and word_count <= 15
+            and (len(lines) <= 2)
+            and (
+                text.isupper()
+                or re.match(r"^(Section|Chapter|Part|Annex|Appendix)\s+", first_line, re.IGNORECASE)
+            )
+        ):
             return BlockType.HEADING.value
 
         return BlockType.PARAGRAPH.value

@@ -76,12 +76,12 @@ class HybridRetriever:
                 else:
                     candidates[other_id].score = max(candidates[other_id].score, 0.9)
 
-        # Strategy 3: Vector similarity (Qdrant)
+        # Strategy 3: Vector similarity (Qdrant & Memory Index)
         if embedding:
             vector_results = await self.qdrant.search_similar_facts(
                 query_embedding=embedding,
                 limit=self.MAX_CANDIDATES_PER_FACT,
-                score_threshold=0.7,
+                score_threshold=0.55,
                 exclude_document_id=exclude_document_id,
             )
             for vr in vector_results:
@@ -90,13 +90,44 @@ class HybridRetriever:
                     continue
                 if other_id not in candidates:
                     candidates[other_id] = RetrievalCandidate(
-                        fact_id=other_id, score=vr["score"] * 0.8,
+                        fact_id=other_id, score=vr["score"] * 0.9,
                         method="vector", payload=vr.get("payload", {}),
                     )
                 else:
-                    # Boost existing candidates found by vector search too
-                    candidates[other_id].score = min(1.0, candidates[other_id].score + 0.1)
+                    candidates[other_id].score = min(1.0, candidates[other_id].score + 0.15)
+
+        # Strategy 4: DB-wide cross-document semantic fallback if candidates are few
+        if len(candidates) < 5 and embedding:
+            all_db_facts = await self.pg.get_all_facts(limit=200)
+            from backend.embeddings import EmbeddingGenerator
+            for dbf in all_db_facts:
+                other_id = str(dbf.id)
+                if other_id == fact_id_str:
+                    continue
+                if exclude_document_id and str(dbf.document_id) == exclude_document_id:
+                    continue
+                if other_id in candidates:
+                    continue
+
+                dbf_text = f"{dbf.subject} {dbf.predicate} {dbf.object_value}"
+                dbf_vec = self.qdrant._memory_points.get(other_id, {}).get("vector")
+                if not dbf_vec:
+                    # Generate and cache embedding
+                    try:
+                        from backend.embeddings import get_embedder
+                        dbf_vec = get_embedder().generate_embedding(dbf_text)
+                        self.qdrant._memory_points[other_id] = {"vector": dbf_vec, "payload": {"document_id": str(dbf.document_id)}}
+                    except Exception:
+                        dbf_vec = None
+
+                if dbf_vec:
+                    sim = EmbeddingGenerator.cosine_similarity(embedding[:len(dbf_vec)], dbf_vec[:len(embedding)])
+                    if sim >= 0.55:
+                        candidates[other_id] = RetrievalCandidate(
+                            fact_id=other_id, score=sim * 0.85, method="vector_db",
+                        )
 
         # Sort by score and limit
         sorted_candidates = sorted(candidates.values(), key=lambda c: c.score, reverse=True)
         return sorted_candidates[:self.MAX_CANDIDATES_PER_FACT]
+

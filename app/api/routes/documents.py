@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
@@ -28,12 +28,23 @@ validator = UploadValidator()
 redis = RedisManager()
 
 
+async def _run_pipeline_background(doc_id_str: str, file_path_str: str):
+    """Execute document ingestion pipeline in the background and commit stages in real-time."""
+    from app.workers.pipeline import IngestionPipeline
+    p = IngestionPipeline()
+    try:
+        await p.process_document(doc_id_str, file_path_str)
+    except Exception as e:
+        logger.error(f"Background ingestion failed for doc {doc_id_str}: {e}", exc_info=True)
+
+
 @router.post("/documents/upload", response_model=UploadResponse)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a PDF document for processing."""
+    """Upload a PDF document and process facts via real-time multi-stage pipeline."""
     file_data = await file.read()
     original_name = file.filename or "document.pdf"
 
@@ -43,89 +54,52 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=result.rejection_reason)
 
     repo = PostgresRepository(db)
-
-    # Check for duplicate
-    existing = await repo.get_document_by_hash(result.file_hash)
-    if existing:
-        if existing.status == ProcessingStatus.FAILED.value:
-            # Document previously failed before fix; reset and re-process
-            file_path = await validator.save_file(file_data, result.sanitized_filename)
-            await repo.update_document(
-                existing.id,
-                status=ProcessingStatus.QUEUED.value,
-                current_stage="QUEUED",
-                error_message=None,
-                error_code=None,
-            )
-            await db.commit()
-
-            async def _retry_pipeline(doc_id_str: str, fpath_str: str):
-                try:
-                    from app.workers.pipeline import IngestionPipeline
-                    p = IngestionPipeline()
-                    await p.process_document(doc_id_str, fpath_str)
-                except Exception as e:
-                    logger.error(f"Background ingestion retry failed for doc {doc_id_str}: {e}", exc_info=True)
-
-            asyncio.create_task(_retry_pipeline(str(existing.id), str(file_path)))
-
-            return UploadResponse(
-                document_id=str(existing.id),
-                filename=existing.filename,
-                status=ProcessingStatus.QUEUED.value,
-                page_count=existing.page_count or 1,
-                message="Retrying processing for previously failed document",
-            )
-
-        return UploadResponse(
-            document_id=str(existing.id),
-            filename=existing.filename,
-            status=existing.status or "COMPLETED",
-            page_count=existing.page_count or 1,
-            message="Document already exists (duplicate detected by hash)",
-        )
-
-    # Save file
     file_path = await validator.save_file(file_data, result.sanitized_filename)
 
-    # Create document record
-    from app.config import get_settings
-    settings = get_settings()
+    # Check for existing record
+    existing = await repo.get_document_by_hash(result.file_hash)
+    if existing:
+        doc = existing
+        await repo.update_document(
+            doc.id,
+            status=ProcessingStatus.QUEUED.value,
+            current_stage="QUEUED",
+            error_message=None,
+            error_code=None,
+        )
+        await db.commit()
+    else:
+        from app.config import get_settings
+        settings = get_settings()
 
-    doc = await repo.create_document(
-        filename=result.sanitized_filename,
-        original_filename=original_name,
-        file_hash=result.file_hash,
-        file_size_bytes=result.file_size_bytes,
-        page_count=result.page_count,
-        mime_type=result.mime_type,
-        status=ProcessingStatus.QUEUED.value,
-        pipeline_version=settings.PIPELINE_VERSION,
-        extractor_version=settings.EXTRACTOR_VERSION,
-        normalizer_version=settings.NORMALIZER_VERSION,
-        prompt_version=settings.PROMPT_VERSION,
-        model_name=settings.EXTRACTION_MODEL,
-        embedding_model=settings.EMBEDDING_MODEL,
-    )
+        doc = await repo.create_document(
+            filename=result.sanitized_filename,
+            original_filename=original_name,
+            file_hash=result.file_hash,
+            file_size_bytes=result.file_size_bytes,
+            page_count=result.page_count,
+            mime_type=result.mime_type,
+            status=ProcessingStatus.QUEUED.value,
+            pipeline_version=settings.PIPELINE_VERSION,
+            extractor_version=settings.EXTRACTOR_VERSION,
+            normalizer_version=settings.NORMALIZER_VERSION,
+            prompt_version=settings.PROMPT_VERSION,
+            model_name=settings.EXTRACTION_MODEL,
+            embedding_model=settings.EMBEDDING_MODEL,
+        )
+        await db.commit()
 
-    # Trigger background ingestion pipeline immediately
-    async def _run_bg_pipeline(doc_id_str: str, fpath_str: str):
-        try:
-            from app.workers.pipeline import IngestionPipeline
-            p = IngestionPipeline()
-            await p.process_document(doc_id_str, fpath_str)
-        except Exception as e:
-            logger.error(f"Background ingestion failed for doc {doc_id_str}: {e}", exc_info=True)
-
-    asyncio.create_task(_run_bg_pipeline(str(doc.id), str(file_path)))
+    # Dispatch background task for real-time stage execution
+    background_tasks.add_task(_run_pipeline_background, str(doc.id), str(file_path))
 
     return UploadResponse(
         document_id=str(doc.id),
         filename=result.sanitized_filename,
         status=ProcessingStatus.QUEUED.value,
         page_count=result.page_count,
-        message="Document uploaded and processing initiated",
+        message="Document uploaded. Processing stages in real-time.",
     )
+
 
 
 @router.get("/documents/stats/overview", response_model=DashboardStats)
