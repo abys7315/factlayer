@@ -12,6 +12,7 @@ data/
 # Uploads & temporary artifacts
 uploads/
 processing/
+scratch/
 *.log
 
 # Python Virtual Environments & caches

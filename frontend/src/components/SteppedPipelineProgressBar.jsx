@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
@@ -73,11 +74,13 @@ export default function SteppedPipelineProgressBar({
 
     let isMounted = true;
     let pollTimer = null;
+    let errorCount = 0;
 
     const pollStatus = async () => {
       try {
         const data = await api.getDocument(documentId);
         if (!isMounted) return;
+        errorCount = 0;
         setDoc(data);
 
         const stage = (data.current_stage || data.status || 'QUEUED').toUpperCase();
@@ -111,7 +114,13 @@ export default function SteppedPipelineProgressBar({
         else if (stage === 'EMBEDDING') setStageDesc('Computing 384-dim dense embeddings...');
         else if (stage === 'LINKING') setStageDesc('Auditing contradictions, supersessions & corroborations...');
       } catch (err) {
+        errorCount += 1;
         console.error('Error polling pipeline status:', err);
+        if (errorCount >= 4) {
+          if (pollTimer) clearInterval(pollTimer);
+          setIsFailed(true);
+          setStageDesc('Document not found or server restarted. Please refresh and re-upload.');
+        }
       }
     };
 
@@ -239,13 +248,12 @@ export default function SteppedPipelineProgressBar({
               <div key={step.id} className="dribbble-stepper-step-item">
                 {/* Number / Checkmark Circle */}
                 <div
-                  className={`dribbble-stepper-circle ${
-                    isStepCompleted
+                  className={`dribbble-stepper-circle ${isStepCompleted
                       ? 'dribbble-stepper-circle-completed'
                       : isStepActive
-                      ? 'dribbble-stepper-circle-active'
-                      : 'dribbble-stepper-circle-pending'
-                  }`}
+                        ? 'dribbble-stepper-circle-active'
+                        : 'dribbble-stepper-circle-pending'
+                    }`}
                 >
                   {isStepCompleted ? (
                     <svg
@@ -262,13 +270,12 @@ export default function SteppedPipelineProgressBar({
 
                 {/* Step Title Label */}
                 <div
-                  className={`dribbble-stepper-label ${
-                    isStepActive
+                  className={`dribbble-stepper-label ${isStepActive
                       ? 'dribbble-stepper-label-active'
                       : isStepCompleted
-                      ? 'dribbble-stepper-label-completed'
-                      : 'dribbble-stepper-label-pending'
-                  }`}
+                        ? 'dribbble-stepper-label-completed'
+                        : 'dribbble-stepper-label-pending'
+                    }`}
                 >
                   {step.name}
                 </div>
