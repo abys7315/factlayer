@@ -5,12 +5,10 @@
 
 # SQLite Databases & data
 data/
-*.db
 *.sqlite
 *.sqlite3
 
-# Uploads & temporary artifacts
-uploads/
+# Temporary artifacts
 processing/
 scratch/
 *.log
