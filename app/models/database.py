@@ -76,6 +76,7 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """Create all tables (for development; production uses Alembic)."""
+    global _engine, _session_factory
     # Import all models so Base.metadata knows about them
     import app.models.document
     import app.models.page
@@ -89,8 +90,23 @@ async def init_db():
     import app.models.processing_job
 
     engine = get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        if "postgresql" in str(engine.url):
+            print(f"[WARN] PostgreSQL connection failed: {e}. Falling back to SQLite for production resilience.")
+            await engine.dispose()
+            _engine = create_async_engine("sqlite+aiosqlite:///./factlayer.db", echo=False)
+            _session_factory = async_sessionmaker(
+                bind=_engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+            )
+            async with _engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        else:
+            raise
 
 
 async def close_db():

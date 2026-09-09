@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     """Central configuration – all values sourced from environment / .env."""
 
     # ── Database ──────────────────────────────────────────────────────
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://superjoin:superjoin@localhost:5432/factlayer")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./factlayer.db")
     QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_COLLECTION: str = os.getenv("QDRANT_COLLECTION", "facts")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
