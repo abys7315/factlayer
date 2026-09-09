@@ -4,7 +4,7 @@
  */
 
 const PROXY_API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-const DIRECT_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const DIRECT_API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://factlayer-backend.onrender.com/api/v1' : 'http://localhost:8000/api/v1');
 
 async function handleResponse(response) {
   if (!response.ok) {
