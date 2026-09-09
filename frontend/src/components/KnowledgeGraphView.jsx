@@ -220,16 +220,16 @@ export default function KnowledgeGraphView() {
         let initX, initY;
 
         if (node.id === relSourceId) {
-          initX = centerX - 180 * spacingMult;
+          initX = centerX - 210 * spacingMult;
           initY = centerY;
         } else if (node.id === relTargetId) {
-          initX = centerX + 180 * spacingMult;
+          initX = centerX + 210 * spacingMult;
           initY = centerY;
         } else if (isFocused) {
           initX = centerX;
           initY = centerY;
         } else {
-          const baseRadius = 260 + ringIndex * 160;
+          const baseRadius = 290 + ringIndex * 170;
           const radius = baseRadius * spacingMult;
           const maxInRing = factsPerRing[ringIndex] || 20;
           const angleOffset = (ringIndex % 2) * (Math.PI / maxInRing);
@@ -254,17 +254,17 @@ export default function KnowledgeGraphView() {
         };
       });
 
-      // Node half-extents for bounding box collision
+      // Node half-extents for bounding box collision (240x86 fact, 180x58 doc, 50r entity)
       const getNodeExtents = (id) => {
         const n = nodes.find((item) => item.id === id);
-        if (!n) return { hw: 108, hh: 40 };
-        if (n.type === 'fact') return { hw: 110, hh: 42 }; // 196x64 + buffer
-        if (n.type === 'document') return { hw: 80, hh: 32 }; // 136x46 + buffer
-        return { hw: 55, hh: 55 }; // entity radius 42 + buffer
+        if (!n) return { hw: 126, hh: 48 };
+        if (n.type === 'fact') return { hw: 128, hh: 50 };
+        if (n.type === 'document') return { hw: 96, hh: 34 };
+        return { hw: 56, hh: 56 };
       };
 
       const nodeIds = nodes.map((n) => n.id);
-      const kRepel = Math.max(220000, nodes.length * 7000) * spacingMult;
+      const kRepel = Math.max(260000, nodes.length * 8000) * spacingMult;
       const kAttract = 0.04;
 
       // Simulation ticks: 85 physics + 25 pure collision relaxation
@@ -319,7 +319,7 @@ export default function KnowledgeGraphView() {
               edge.type === 'SUPERSEDES' ||
               edge.type === 'CORROBORATES' ||
               edge.type === 'CONTEXTUAL_DIFFERENCE';
-            const targetDist = (isCrossRel ? 340 : 270) * spacingMult;
+            const targetDist = (isCrossRel ? 400 : 310) * spacingMult;
             const diff = dist - targetDist;
             const force = diff * kAttract * alpha;
 
@@ -765,38 +765,34 @@ export default function KnowledgeGraphView() {
   };
 
   return (
-    <div className="knowledge-graph-page flex flex-col h-[calc(100vh-4.5rem)] bg-slate-950 text-slate-100 overflow-hidden font-sans">
+    <div className="kg-page">
       {/* Top Controls Toolbar */}
-      <div className="graph-toolbar bg-slate-900/90 border-b border-slate-800/80 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 z-20 backdrop-blur-md">
+      <div className="kg-toolbar">
         {/* Left: Brand & Scope */}
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-sm">
-            <IconNetwork className="w-5 h-5" />
+        <div className="kg-brand">
+          <div className="kg-brand-icon">
+            <IconNetwork style={{ width: 20, height: 20 }} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold tracking-tight text-white m-0">Knowledge Graph Explorer</h1>
+            <h1 className="kg-brand-title">
+              Knowledge Graph Explorer
               {graphData.focused_entity && (
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <span className="kg-entity-chip">
                   {graphData.focused_entity}
                 </span>
               )}
-            </div>
-            <p className="text-[11px] text-slate-400 m-0">
+            </h1>
+            <p className="kg-brand-subtitle">
               {graphData.stats?.fact_count || 0} Grounded Claims &bull; {graphData.stats?.total_relationships || 0} Cross-Document Relationships
             </p>
           </div>
         </div>
 
         {/* Center: Presets & Quick Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 bg-slate-800/80 p-1 rounded-lg border border-slate-700/60 text-xs">
+        <div className="kg-preset-group">
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-              activePreset === 'all'
-                ? 'bg-slate-700 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'all' ? 'active-all' : ''}`}
             onClick={() => handlePresetSelect('all')}
           >
             All
@@ -805,11 +801,7 @@ export default function KnowledgeGraphView() {
           {paramFactId && (
             <button
               type="button"
-              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                activePreset === 'focus'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-              }`}
+              className={`kg-preset-btn ${activePreset === 'focus' ? 'active-focus' : ''}`}
               onClick={() => handlePresetSelect('focus')}
             >
               Focal Subgraph
@@ -818,86 +810,64 @@ export default function KnowledgeGraphView() {
 
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
-              activePreset === 'contradictions'
-                ? 'bg-rose-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'contradictions' ? 'active-contradictions' : ''}`}
             onClick={() => handlePresetSelect('contradictions')}
           >
-            <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+            <span className="kg-dot" style={{ background: '#f43f5e' }}></span>
             Contradictions ({graphData.stats?.contradictions ?? '0'})
           </button>
 
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
-              activePreset === 'supersedes'
-                ? 'bg-amber-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'supersedes' ? 'active-supersedes' : ''}`}
             onClick={() => handlePresetSelect('supersedes')}
           >
-            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span className="kg-dot" style={{ background: '#f59e0b' }}></span>
             Supersessions ({graphData.stats?.supersedes ?? '0'})
           </button>
 
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
-              activePreset === 'contextual_differences'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'contextual_differences' ? 'active-contextual' : ''}`}
             onClick={() => handlePresetSelect('contextual_differences')}
           >
-            <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+            <span className="kg-dot" style={{ background: '#3b82f6' }}></span>
             Contextual Diffs
           </button>
 
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
-              activePreset === 'corroborations'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'corroborations' ? 'active-corroborations' : ''}`}
             onClick={() => handlePresetSelect('corroborations')}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span className="kg-dot" style={{ background: '#10b981' }}></span>
             Corroborations
           </button>
 
           <button
             type="button"
-            className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1.5 ${
-              activePreset === 'relationships'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-            }`}
+            className={`kg-preset-btn ${activePreset === 'relationships' ? 'active-relationships' : ''}`}
             onClick={() => handlePresetSelect('relationships')}
           >
-            <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+            <span className="kg-dot" style={{ background: '#a855f7' }}></span>
             All Types
           </button>
         </div>
 
         {/* Right: Entity Switcher, Doc Switcher & Zoom Controls */}
-        <div className="flex items-center gap-2">
+        <div className="kg-actions-group">
           {/* Document Autocomplete Selector */}
-          <div className="relative">
+          <div className="kg-dropdown-wrapper">
             <button
               type="button"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
-                paramDocId ? 'bg-indigo-950/80 border-indigo-500/60 text-indigo-200' : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-indigo-500/60'
-              }`}
+              className={`kg-dropdown-btn ${paramDocId ? 'active-filter' : ''}`}
               onClick={() => {
                 setIsDocDropdownOpen(!isDocDropdownOpen);
                 setIsEntityDropdownOpen(false);
               }}
             >
-              <IconFileText className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="max-w-[120px] truncate">
+              <IconFileText style={{ width: 14, height: 14, color: '#22d3ee' }} />
+              <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {paramDocId ? (documentsList.find((d) => d.id === paramDocId)?.filename || 'Filtered Doc') : 'All Documents'}
               </span>
               {paramDocId && (
@@ -908,118 +878,113 @@ export default function KnowledgeGraphView() {
                     e.stopPropagation();
                     handleDocSelect(null);
                   }}
-                  className="hover:text-rose-400 ml-0.5 text-slate-400 font-bold"
+                  style={{ marginLeft: 4, cursor: 'pointer', color: '#f43f5e', fontWeight: 'bold' }}
                   title="Clear document filter"
                 >
                   &times;
                 </span>
               )}
-              <IconChevronRight className="w-3 h-3 text-slate-400 transform rotate-90" />
+              <IconChevronRight style={{ width: 12, height: 12, transform: 'rotate(90deg)', color: '#94a3b8' }} />
             </button>
 
             {isDocDropdownOpen && (
-              <div className="absolute right-0 mt-1 w-72 max-h-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 overflow-y-auto">
+              <div className="kg-dropdown-menu" style={{ left: 0, right: 'auto' }}>
                 <input
                   type="text"
                   placeholder="Filter documents..."
                   value={docSearchQuery}
                   onChange={(e) => setDocSearchQuery(e.target.value)}
-                  className="w-full px-2 py-1.5 mb-2 rounded bg-slate-800 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  className="kg-dropdown-search"
                   autoFocus
                 />
                 <button
                   type="button"
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-indigo-950/60 hover:text-indigo-300 text-xs text-slate-300 transition-colors mb-1 font-semibold"
+                  className={`kg-dropdown-item ${!paramDocId ? 'selected' : ''}`}
                   onClick={() => handleDocSelect(null)}
                 >
-                  All Documents (Global)
+                  <span>All Documents (Global)</span>
                 </button>
-                <div className="space-y-1">
-                  {documentsList
-                    .filter((d) => (d.filename || '').toLowerCase().includes(docSearchQuery.toLowerCase()))
-                    .map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`w-full text-left px-2 py-1.5 rounded hover:bg-indigo-950/60 hover:text-indigo-300 text-xs flex items-center justify-between transition-colors ${
-                          paramDocId === item.id ? 'bg-indigo-900/40 text-indigo-200 font-semibold' : 'text-slate-300'
-                        }`}
-                        onClick={() => handleDocSelect(item.id)}
-                      >
-                        <span className="truncate max-w-[190px]" title={item.filename}>{item.filename}</span>
-                        <span className="text-[10px] text-slate-500 font-mono">{item.document_type || 'PDF'}</span>
-                      </button>
-                    ))}
-                </div>
+                {documentsList
+                  .filter((d) => (d.filename || '').toLowerCase().includes(docSearchQuery.toLowerCase()))
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`kg-dropdown-item ${paramDocId === item.id ? 'selected' : ''}`}
+                      onClick={() => handleDocSelect(item.id)}
+                    >
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.filename}>
+                        {item.filename}
+                      </span>
+                      <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'monospace', flexShrink: 0, marginLeft: 8 }}>
+                        {item.document_type || 'PDF'}
+                      </span>
+                    </button>
+                  ))}
               </div>
             )}
           </div>
 
           {/* Entity Autocomplete Selector */}
-          <div className="relative">
+          <div className="kg-dropdown-wrapper">
             <button
               type="button"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-200 hover:border-indigo-500/60 transition-colors"
+              className={`kg-dropdown-btn ${paramEntity ? 'active-filter' : ''}`}
               onClick={() => {
                 setIsEntityDropdownOpen(!isEntityDropdownOpen);
                 setIsDocDropdownOpen(false);
               }}
             >
-              <IconSearch className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="max-w-[110px] truncate">{paramEntity || 'Switch Entity...'}</span>
-              <IconChevronRight className="w-3 h-3 text-slate-400 transform rotate-90" />
+              <IconSearch style={{ width: 14, height: 14, color: '#818cf8' }} />
+              <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {paramEntity || 'Switch Entity...'}
+              </span>
+              <IconChevronRight style={{ width: 12, height: 12, transform: 'rotate(90deg)', color: '#94a3b8' }} />
             </button>
 
             {isEntityDropdownOpen && (
-              <div className="absolute right-0 mt-1 w-64 max-h-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 overflow-y-auto">
+              <div className="kg-dropdown-menu" style={{ left: 0, right: 'auto' }}>
                 <input
                   type="text"
                   placeholder="Filter entities..."
                   value={entitySearchQuery}
                   onChange={(e) => setEntitySearchQuery(e.target.value)}
-                  className="w-full px-2 py-1.5 mb-2 rounded bg-slate-800 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  className="kg-dropdown-search"
                   autoFocus
                 />
                 <button
                   type="button"
-                  className="w-full text-left px-2 py-1.5 rounded hover:bg-indigo-950/60 hover:text-indigo-300 text-xs text-slate-300 transition-colors mb-1 font-semibold"
+                  className={`kg-dropdown-item ${!paramEntity ? 'selected' : ''}`}
                   onClick={() => handleEntitySelect(null)}
                 >
-                  All Entities (Global)
+                  <span>All Entities (Global)</span>
                 </button>
-                <div className="space-y-1">
-                  {entitiesList
-                    .filter((e) => e.name.toLowerCase().includes(entitySearchQuery.toLowerCase()))
-                    .map((item) => (
-                      <button
-                        key={item.name}
-                        type="button"
-                        className="w-full text-left px-2 py-1.5 rounded hover:bg-indigo-950/60 hover:text-indigo-300 text-xs flex items-center justify-between text-slate-300 transition-colors"
-                        onClick={() => handleEntitySelect(item.name)}
-                      >
-                        <span className="truncate font-medium">{item.name}</span>
-                        <div className="flex items-center gap-1 text-[10px]">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">{item.facts_count}f</span>
-                          {item.contradictions_count > 0 && (
-                            <span className="px-1 py-0.5 rounded bg-rose-950/70 text-rose-300 font-bold">
-                              {item.contradictions_count}c
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                </div>
+                {entitiesList
+                  .filter((e) => e.name.toLowerCase().includes(entitySearchQuery.toLowerCase()))
+                  .map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className={`kg-dropdown-item ${paramEntity === item.name ? 'selected' : ''}`}
+                      onClick={() => handleEntitySelect(item.name)}
+                    >
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.name}
+                      </span>
+                      <span style={{ fontSize: 10, color: '#818cf8', fontFamily: 'monospace', flexShrink: 0, marginLeft: 8 }}>
+                        {item.facts_count} claims
+                      </span>
+                    </button>
+                  ))}
               </div>
             )}
           </div>
 
           {/* Node Visibility Toggles */}
-          <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700/60 text-[11px]">
+          <div className="kg-visibility-group">
             <button
               type="button"
-              className={`px-2 py-0.5 rounded transition-all ${
-                nodeTypeVisibility.entity ? 'bg-indigo-900/60 text-indigo-300 font-semibold' : 'text-slate-500'
-              }`}
+              className={`kg-vis-btn ${nodeTypeVisibility.entity ? 'active-entity' : ''}`}
               onClick={() => setNodeTypeVisibility((v) => ({ ...v, entity: !v.entity }))}
               title="Toggle Entity Hubs"
             >
@@ -1027,9 +992,7 @@ export default function KnowledgeGraphView() {
             </button>
             <button
               type="button"
-              className={`px-2 py-0.5 rounded transition-all ${
-                nodeTypeVisibility.document ? 'bg-cyan-900/60 text-cyan-300 font-semibold' : 'text-slate-500'
-              }`}
+              className={`kg-vis-btn ${nodeTypeVisibility.document ? 'active-doc' : ''}`}
               onClick={() => setNodeTypeVisibility((v) => ({ ...v, document: !v.document }))}
               title="Toggle Document Nodes"
             >
@@ -1037,9 +1000,7 @@ export default function KnowledgeGraphView() {
             </button>
             <button
               type="button"
-              className={`px-2 py-0.5 rounded transition-all ${
-                nodeTypeVisibility.fact ? 'bg-emerald-900/60 text-emerald-300 font-semibold' : 'text-slate-500'
-              }`}
+              className={`kg-vis-btn ${nodeTypeVisibility.fact ? 'active-fact' : ''}`}
               onClick={() => setNodeTypeVisibility((v) => ({ ...v, fact: !v.fact }))}
               title="Toggle Fact Nodes"
             >
@@ -1048,18 +1009,19 @@ export default function KnowledgeGraphView() {
           </div>
 
           {/* Zoom Buttons in Toolbar */}
-          <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700/60">
+          <div className="kg-zoom-group">
             <button
               type="button"
-              className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="kg-tool-btn"
               onClick={zoomIn}
               title="Zoom In (+)"
             >
-              <IconZoomIn className="w-3.5 h-3.5" />
+              <IconZoomIn style={{ width: 14, height: 14 }} />
             </button>
             <button
               type="button"
-              className="px-1.5 py-0.5 rounded hover:bg-slate-700 text-[11px] font-mono font-bold text-slate-300 hover:text-white transition-colors"
+              className="kg-tool-btn"
+              style={{ fontFamily: 'monospace', fontWeight: 700, minWidth: 42 }}
               onClick={resetZoom}
               title="Reset to 100% Zoom"
             >
@@ -1067,27 +1029,27 @@ export default function KnowledgeGraphView() {
             </button>
             <button
               type="button"
-              className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="kg-tool-btn"
               onClick={zoomOut}
               title="Zoom Out (-)"
             >
-              <IconZoomOut className="w-3.5 h-3.5" />
+              <IconZoomOut style={{ width: 14, height: 14 }} />
             </button>
             <button
               type="button"
-              className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="kg-tool-btn"
               onClick={() => fitToView()}
               title="Fit Entire Graph to View"
             >
-              <IconMaximize className="w-3.5 h-3.5" />
+              <IconMaximize style={{ width: 14, height: 14 }} />
             </button>
             <button
               type="button"
-              className="p-1 rounded hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+              className="kg-tool-btn"
               onClick={centerOnFocused}
               title="Center on Focal Claim"
             >
-              <IconCompass className="w-3.5 h-3.5 text-indigo-400" />
+              <IconCompass style={{ width: 14, height: 14, color: '#818cf8' }} />
             </button>
           </div>
         </div>
@@ -1095,33 +1057,29 @@ export default function KnowledgeGraphView() {
 
       {/* Dynamic Tab Context Banner */}
       {contextDescription && (
-        <div className="bg-indigo-950/90 border-b border-indigo-500/30 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs backdrop-blur-sm z-10 animate-fade-in shadow-inner">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></span>
-            <span className="text-slate-300 font-semibold uppercase tracking-wider text-[11px]">
-              Active Scope:
-            </span>
-            <span className="px-2 py-0.5 rounded bg-indigo-900/80 border border-indigo-500/40 text-indigo-200 font-medium text-xs">
-              {contextDescription}
-            </span>
+        <div className="kg-scope-banner">
+          <div className="kg-scope-left">
+            <div className="kg-pulse-dot"></div>
+            <span className="kg-scope-label">Active Scope:</span>
+            <span className="kg-scope-tag">{contextDescription}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="kg-scope-right">
             <button
               type="button"
               onClick={handleResetToGlobal}
-              className="px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white transition-colors text-xs flex items-center gap-1.5 border border-slate-700"
-              title="Clear all tab presets, document filters, and return to the complete global knowledge graph"
+              className="kg-banner-btn"
+              title="Clear all filters and return to global view"
             >
-              <IconRefreshCw className="w-3 h-3 text-indigo-400" />
+              <IconRefreshCw style={{ width: 12, height: 12, color: '#818cf8' }} />
               <span>Reset to Global Graph</span>
             </button>
             {originTabLink && (
               <Link
                 to={originTabLink.url}
-                className="px-2.5 py-1 rounded bg-indigo-900/60 hover:bg-indigo-900 text-indigo-200 transition-colors text-xs flex items-center gap-1 border border-indigo-700/50"
+                className="kg-banner-btn kg-banner-btn-origin"
               >
                 <span>Back to {originTabLink.label}</span>
-                <IconChevronRight className="w-3 h-3" />
+                <IconChevronRight style={{ width: 12, height: 12 }} />
               </Link>
             )}
           </div>
@@ -1129,31 +1087,31 @@ export default function KnowledgeGraphView() {
       )}
 
       {/* Main Workspace Layout (Graph Canvas + Side Drawer) */}
-      <div className="relative flex-1 flex overflow-hidden">
+      <div className="kg-workspace">
         {/* SVG Interactive Canvas */}
         <div
-          className="relative flex-1 bg-[#0b0f19] cursor-grab active:cursor-grabbing overflow-hidden select-none"
+          className="kg-canvas"
           onWheel={handleWheel}
           onMouseDown={handleMouseDownCanvas}
           onMouseMove={handleMouseMoveCanvas}
           onMouseUp={handleMouseUpCanvas}
         >
           {loading && (
-            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm z-30 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <IconRefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
-                <span className="text-sm font-medium text-slate-300">Resolving multi-hop graph topology...</span>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(8, 12, 20, 0.7)', backdropFilter: 'blur(4px)', zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                <IconRefreshCw style={{ width: 32, height: 32, color: '#818cf8', animation: 'spin 1s linear infinite' }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>Resolving multi-hop graph topology...</span>
               </div>
             </div>
           )}
 
           {error && (
-            <div className="absolute top-4 left-4 z-30 bg-rose-950/80 border border-rose-800/80 rounded-xl p-4 max-w-md shadow-xl">
-              <div className="flex items-start gap-2.5">
-                <IconAlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+            <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 30, background: 'rgba(76, 5, 25, 0.85)', border: '1px solid rgba(225, 29, 72, 0.6)', borderRadius: 12, padding: 16, maxWidth: 440, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <IconAlertTriangle style={{ width: 20, height: 20, color: '#fb7185', flexShrink: 0, marginTop: 2 }} />
                 <div>
-                  <h4 className="text-xs font-bold text-rose-200">Could not assemble Knowledge Graph</h4>
-                  <p className="text-xs text-rose-300/90 mt-1">{error}</p>
+                  <h4 style={{ fontSize: 12, fontWeight: 700, color: '#ffe4e6', margin: 0 }}>Could not assemble Knowledge Graph</h4>
+                  <p style={{ fontSize: 12, color: '#fda4af', margin: '4px 0 0 0' }}>{error}</p>
                 </div>
               </div>
             </div>
@@ -1236,14 +1194,11 @@ export default function KnowledgeGraphView() {
                   return (
                     <g
                       key={edge.id}
-                      className={`edge-group transition-opacity duration-200 ${
-                        isDimmed ? 'opacity-20' : 'opacity-100'
-                      }`}
+                      style={{ opacity: isDimmed ? 0.2 : 1, transition: 'opacity 0.2s ease', cursor: isRel ? 'pointer' : 'default' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (isRel) setSelectedEdge(edge);
                       }}
-                      style={{ cursor: isRel ? 'pointer' : 'default' }}
                     >
                       {/* Edge Path */}
                       <path
@@ -1258,28 +1213,29 @@ export default function KnowledgeGraphView() {
 
                       {/* Relationship Badge Pill at Midpoint */}
                       {isRel && (
-                        <g transform={`translate(${ctrlX}, ${ctrlY})`} className="cursor-pointer">
+                        <g transform={`translate(${ctrlX}, ${ctrlY})`} style={{ cursor: 'pointer' }}>
                           <rect
-                            x="-52"
-                            y="-11"
-                            width="104"
-                            height="22"
-                            rx="11"
-                            fill={isSelected ? '#ffffff' : '#0f172a'}
+                            x="-63"
+                            y="-14"
+                            width="126"
+                            height="28"
+                            rx="14"
+                            fill={isSelected ? '#ffffff' : '#0a0f1d'}
                             stroke={style.stroke}
-                            strokeWidth={isSelected ? '2' : '1.5'}
-                            className="shadow-md"
+                            strokeWidth={isSelected ? '2.5' : '1.8'}
+                            filter="drop-shadow(0 4px 10px rgba(0,0,0,0.5))"
                           />
                           <text
                             textAnchor="middle"
-                            y="4"
-                            fontSize="9"
-                            fontWeight="bold"
+                            y="4.5"
+                            fontSize="11"
+                            fontWeight="800"
                             fontFamily="monospace"
+                            letterSpacing="0.04em"
                             fill={isSelected ? '#0f172a' : style.stroke}
-                            className="select-none"
+                            className="select-none pointer-events-none"
                           >
-                            {edge.type.substring(0, 12)}
+                            {edge.type.substring(0, 14)}
                           </text>
                         </g>
                       )}
@@ -1288,23 +1244,24 @@ export default function KnowledgeGraphView() {
                       {edge.type === 'EXTRACTED_FROM' && edge.page_number && (
                         <g transform={`translate(${ctrlX}, ${ctrlY})`}>
                           <rect
-                            x="-24"
-                            y="-9"
-                            width="48"
-                            height="18"
-                            rx="9"
+                            x="-30"
+                            y="-11"
+                            width="60"
+                            height="22"
+                            rx="11"
                             fill="#083344"
                             stroke="#06b6d4"
-                            strokeWidth="1"
-                            opacity="0.85"
+                            strokeWidth="1.5"
+                            filter="drop-shadow(0 2px 6px rgba(0,0,0,0.4))"
                           />
                           <text
                             textAnchor="middle"
-                            y="3"
-                            fontSize="8"
-                            fontWeight="bold"
+                            y="4"
+                            fontSize="10"
+                            fontWeight="800"
                             fontFamily="monospace"
                             fill="#67e8f9"
+                            className="select-none pointer-events-none"
                           >
                             p. {edge.page_number}
                           </text>
@@ -1329,9 +1286,7 @@ export default function KnowledgeGraphView() {
                     <g
                       key={node.id}
                       transform={`translate(${pos.x}, ${pos.y})`}
-                      className={`node-group cursor-pointer transition-opacity duration-200 ${
-                        isDimmed ? 'opacity-25' : 'opacity-100'
-                      }`}
+                      style={{ opacity: isDimmed ? 0.25 : 1, transition: 'opacity 0.2s ease', cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedNode(node);
@@ -1347,12 +1302,11 @@ export default function KnowledgeGraphView() {
                       {/* Pulsing ring for focused fact claim */}
                       {isFocused && (
                         <circle
-                          r="46"
+                          r="56"
                           fill="none"
-                          stroke="#6366f1"
+                          stroke="#818cf8"
                           strokeWidth="2.5"
-                          className="animate-ping"
-                          opacity="0.75"
+                          opacity="0.8"
                         />
                       )}
 
@@ -1360,12 +1314,11 @@ export default function KnowledgeGraphView() {
                       {node.type === 'entity' && (
                         <g>
                           <circle
-                            r={isSelected ? 42 : 38}
+                            r={isSelected ? 52 : 48}
                             fill="url(#entity-grad)"
-                            stroke={isSelected ? '#a5b4fc' : '#6366f1'}
+                            stroke={isSelected ? '#c7d2fe' : '#6366f1'}
                             strokeWidth={isSelected ? 3.5 : 2.5}
-                            className="shadow-xl"
-                            filter={isFocused ? 'url(#glow-focused)' : undefined}
+                            filter={isFocused ? 'url(#glow-focused)' : 'drop-shadow(0 6px 16px rgba(99,102,241,0.3))'}
                           />
                           {/* Radial gradient for entity */}
                           <defs>
@@ -1376,31 +1329,32 @@ export default function KnowledgeGraphView() {
                           </defs>
                           <text
                             textAnchor="middle"
-                            y="-6"
-                            fontSize="11"
+                            y="-8"
+                            fontSize="13"
                             fontWeight="bold"
-                            fill="#e0e7ff"
+                            fill="#ffffff"
                             className="select-none pointer-events-none"
                           >
-                            {node.label.length > 14 ? node.label.substring(0, 13) + '…' : node.label}
+                            {node.label.length > 15 ? node.label.substring(0, 14) + '…' : node.label}
                           </text>
                           {/* Fact count pill */}
                           <rect
-                            x="-22"
-                            y="4"
-                            width="44"
-                            height="14"
-                            rx="7"
+                            x="-28"
+                            y="6"
+                            width="56"
+                            height="18"
+                            rx="9"
                             fill="#4338ca"
-                            opacity="0.9"
+                            stroke="#6366f1"
+                            strokeWidth="1"
                           />
                           <text
                             textAnchor="middle"
-                            y="14"
-                            fontSize="8"
+                            y="19"
+                            fontSize="10"
                             fontWeight="bold"
                             fontFamily="monospace"
-                            fill="#c7d2fe"
+                            fill="#e0e7ff"
                             className="select-none pointer-events-none"
                           >
                             {node.fact_count} claims
@@ -1412,31 +1366,32 @@ export default function KnowledgeGraphView() {
                       {node.type === 'document' && (
                         <g>
                           <rect
-                            x="-70"
-                            y="-24"
-                            width="140"
-                            height="48"
-                            rx="10"
+                            x="-90"
+                            y="-29"
+                            width="180"
+                            height="58"
+                            rx="12"
                             fill="#042f2e"
                             stroke={isSelected ? '#5eead4' : '#0d9488'}
-                            strokeWidth={isSelected ? 2.5 : 1.5}
-                            className="shadow-lg"
+                            strokeWidth={isSelected ? 3 : 1.8}
+                            filter="drop-shadow(0 4px 12px rgba(0,0,0,0.5))"
                           />
                           <text
                             textAnchor="middle"
-                            y="-5"
-                            fontSize="10"
+                            y="-6"
+                            fontSize="12.5"
                             fontWeight="bold"
                             fill="#ccfbf1"
                             className="select-none pointer-events-none"
                           >
-                            📄 {node.label && node.label.length > 16 ? node.label.substring(0, 15) + '…' : (node.label || 'Document')}
+                            📄 {node.label && node.label.length > 18 ? node.label.substring(0, 17) + '…' : (node.label || 'Document')}
                           </text>
                           <text
                             textAnchor="middle"
-                            y="13"
-                            fontSize="8.5"
+                            y="14"
+                            fontSize="10.5"
                             fontFamily="monospace"
+                            fontWeight="600"
                             fill="#5eead4"
                             className="select-none pointer-events-none"
                           >
@@ -1449,84 +1404,122 @@ export default function KnowledgeGraphView() {
                       {node.type === 'fact' && (() => {
                         const role = nodeRoleMap[node.id];
                         let strokeColor = '#334155';
-                        let fillColor = '#0f172a';
+                        let cardBg = '#0b1120';
+                        let headerBg = 'rgba(51, 65, 85, 0.4)';
+                        let headerText = '#94a3b8';
+                        let accentLine = '#334155';
 
                         if (isFocused) {
                           strokeColor = '#818cf8';
-                          fillColor = '#1e1b4b';
+                          cardBg = '#13112c';
+                          headerBg = 'rgba(99, 102, 241, 0.3)';
+                          headerText = '#c7d2fe';
+                          accentLine = '#6366f1';
                         } else if (isSelected) {
                           strokeColor = '#38bdf8';
-                          fillColor = '#1e293b';
+                          cardBg = '#0f172a';
+                          headerBg = 'rgba(56, 189, 248, 0.25)';
+                          headerText = '#7dd3fc';
+                          accentLine = '#38bdf8';
                         } else if (role === 'CONTRADICTS') {
                           strokeColor = '#f43f5e';
-                          fillColor = '#170b10';
+                          cardBg = '#1c0d14';
+                          headerBg = 'rgba(244, 63, 94, 0.25)';
+                          headerText = '#fda4af';
+                          accentLine = '#f43f5e';
                         } else if (role === 'SUPERSEDES') {
                           strokeColor = '#f59e0b';
-                          fillColor = '#181208';
+                          cardBg = '#1f160a';
+                          headerBg = 'rgba(245, 158, 11, 0.25)';
+                          headerText = '#fde68a';
+                          accentLine = '#f59e0b';
                         } else if (role === 'CORROBORATES') {
                           strokeColor = '#10b981';
-                          fillColor = '#061712';
+                          cardBg = '#071b14';
+                          headerBg = 'rgba(16, 185, 129, 0.25)';
+                          headerText = '#a7f3d0';
+                          accentLine = '#10b981';
                         } else if (role === 'CONTEXTUAL_DIFFERENCE') {
                           strokeColor = '#3b82f6';
-                          fillColor = '#091322';
+                          cardBg = '#0c1527';
+                          headerBg = 'rgba(59, 130, 246, 0.25)';
+                          headerText = '#93c5fd';
+                          accentLine = '#3b82f6';
                         }
 
-                        const strokeWidth = isFocused ? 2.8 : isSelected ? 2.2 : (role ? 1.8 : 1.2);
+                        const strokeWidth = isFocused ? 3 : isSelected ? 2.5 : (role ? 2 : 1.5);
 
                         return (
-                          <g>
+                          <g filter="drop-shadow(0 6px 20px rgba(0,0,0,0.55))">
+                            {/* Main Card Shell */}
                             <rect
-                              x="-98"
-                              y="-32"
-                              width="196"
-                              height="64"
-                              rx="10"
-                              fill={fillColor}
+                              x="-120"
+                              y="-43"
+                              width="240"
+                              height="86"
+                              rx="12"
+                              fill={cardBg}
                               stroke={strokeColor}
                               strokeWidth={strokeWidth}
-                              className="shadow-xl"
                             />
 
-                            {/* Predicate title */}
+                            {/* Header Accent Band */}
+                            <path
+                              d="M -120 -31 A 12 12 0 0 1 -108 -43 L 108 -43 A 12 12 0 0 1 120 -31 L 120 -17 L -120 -17 Z"
+                              fill={headerBg}
+                            />
+                            <line
+                              x1="-120"
+                              y1="-17"
+                              x2="120"
+                              y2="-17"
+                              stroke={accentLine}
+                              strokeWidth="1"
+                              opacity="0.6"
+                            />
+
+                            {/* Predicate title in header band */}
                             <text
                               textAnchor="middle"
-                              y="-15"
-                              fontSize="9.5"
-                              fontWeight="bold"
+                              y="-26"
+                              fontSize="11"
+                              fontWeight="800"
                               fontFamily="monospace"
-                              fill={isFocused ? '#c7d2fe' : role === 'CONTRADICTS' ? '#fda4af' : role === 'SUPERSEDES' ? '#fde68a' : role === 'CORROBORATES' ? '#a7f3d0' : '#94a3b8'}
-                              className="select-none pointer-events-none uppercase tracking-wider"
+                              fill={headerText}
+                              className="select-none pointer-events-none"
+                              letterSpacing="0.04em"
                             >
-                              {node.predicate && node.predicate.length > 22 ? node.predicate.substring(0, 21) + '…' : (node.predicate || 'CLAIM')}
+                              {node.predicate && node.predicate.length > 24 ? node.predicate.substring(0, 23) + '…' : (node.predicate || 'CLAIM').toUpperCase()}
                             </text>
 
-                            {/* Value display */}
+                            {/* Main Value Display */}
                             <text
                               textAnchor="middle"
-                              y="5"
-                              fontSize="12.5"
-                              fontWeight="bold"
+                              y="9"
+                              fontSize="16.5"
+                              fontWeight="800"
                               fill="#ffffff"
                               className="select-none pointer-events-none"
                             >
                               {String(node.value || '').length > 20 ? String(node.value).substring(0, 19) + '…' : (node.value ?? 'N/A')}{' '}
                               {node.unit && (
-                                <tspan fontSize="8.5" fill="#a5b4fc" fontWeight="normal">
+                                <tspan fontSize="11" fill="#93c5fd" fontWeight="bold">
                                   {node.unit}
                                 </tspan>
                               )}
                             </text>
 
-                            {/* Provenance Document / Page pill */}
+                            {/* Provenance Document / Page footer */}
                             <text
                               textAnchor="middle"
-                              y="21"
-                              fontSize="8.5"
+                              y="29"
+                              fontSize="10.5"
                               fontFamily="monospace"
-                              fill="#64748b"
+                              fontWeight="600"
+                              fill="#94a3b8"
                               className="select-none pointer-events-none"
                             >
-                              {node.document_name ? `${node.document_name.substring(0, 12)} p.${node.page_number}` : `p. ${node.page_number}`} &bull; {Math.round((node.confidence || 0.95) * 100)}%
+                              {node.document_name ? `${node.document_name.substring(0, 14)} p.${node.page_number}` : `p. ${node.page_number}`} &bull; {Math.round((node.confidence || 0.95) * 100)}% conf
                             </text>
                           </g>
                         );
@@ -1539,57 +1532,57 @@ export default function KnowledgeGraphView() {
           </svg>
 
           {/* Canvas Legend & Help overlay */}
-          <div className="absolute bottom-4 left-4 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 text-[11px] space-y-1.5 shadow-xl max-w-xs pointer-events-none z-20">
-            <div className="font-bold text-slate-200 text-xs flex items-center gap-1.5">
-              <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
+          <div className="kg-legend">
+            <div className="kg-legend-title">
+              <IconSparkles style={{ width: 14, height: 14, color: '#818cf8' }} />
               <span>Multi-Hop Legend</span>
             </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+            <div className="kg-legend-grid">
+              <div className="kg-legend-item">
+                <span className="kg-dot" style={{ background: '#6366f1' }}></span>
                 <span>Entity Hub</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-slate-700 border border-slate-500"></span>
+              <div className="kg-legend-item">
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: '#334155', border: '1px solid #64748b' }}></span>
                 <span>Fact Claim</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 bg-rose-500"></span>
-                <span className="text-rose-400 font-medium">Contradiction</span>
+              <div className="kg-legend-item">
+                <span style={{ width: 12, height: 2, background: '#f43f5e' }}></span>
+                <span style={{ color: '#fda4af', fontWeight: 600 }}>Contradiction</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 bg-emerald-500"></span>
-                <span className="text-emerald-400 font-medium">Corroboration</span>
+              <div className="kg-legend-item">
+                <span style={{ width: 12, height: 2, background: '#10b981' }}></span>
+                <span style={{ color: '#a7f3d0', fontWeight: 600 }}>Corroboration</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 bg-amber-500"></span>
-                <span className="text-amber-400 font-medium">Supersession</span>
+              <div className="kg-legend-item">
+                <span style={{ width: 12, height: 2, background: '#f59e0b' }}></span>
+                <span style={{ color: '#fde68a', fontWeight: 600 }}>Supersession</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 bg-cyan-500 border-t border-dashed"></span>
-                <span className="text-cyan-400 font-medium">Source Page</span>
+              <div className="kg-legend-item">
+                <span style={{ width: 12, height: 2, background: '#06b6d4' }}></span>
+                <span style={{ color: '#67e8f9', fontWeight: 600 }}>Source Page</span>
               </div>
             </div>
-            <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800">
+            <div className="kg-legend-tip">
               Scroll wheel to zoom to pointer &bull; Drag canvas or nodes
             </div>
           </div>
 
           {/* Floating Canvas Dock for Zoom, Fit & Layout Spacing */}
-          <div className="absolute bottom-4 right-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 p-1.5 rounded-xl shadow-2xl">
+          <div className="kg-floating-dock">
             {/* Zoom Controls */}
-            <div className="flex items-center gap-0.5">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button
                 type="button"
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+                className="kg-dock-btn"
                 onClick={zoomIn}
                 title="Zoom In (+)"
               >
-                <IconZoomIn className="w-4 h-4" />
+                <IconZoomIn style={{ width: 15, height: 15 }} />
               </button>
               <button
                 type="button"
-                className="px-2 py-1 rounded-lg hover:bg-slate-800 text-[11px] font-mono font-bold text-slate-300 hover:text-white transition-colors"
+                className="kg-dock-pill"
                 onClick={resetZoom}
                 title="Reset to 100% Zoom"
               >
@@ -1597,49 +1590,49 @@ export default function KnowledgeGraphView() {
               </button>
               <button
                 type="button"
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+                className="kg-dock-btn"
                 onClick={zoomOut}
                 title="Zoom Out (-)"
               >
-                <IconZoomOut className="w-4 h-4" />
+                <IconZoomOut style={{ width: 15, height: 15 }} />
               </button>
             </div>
 
-            <div className="w-[1px] h-4 bg-slate-700/80"></div>
+            <div className="kg-dock-divider"></div>
 
             {/* Viewport Fit & Focus */}
-            <div className="flex items-center gap-0.5">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button
                 type="button"
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-indigo-300 transition-colors"
+                className="kg-dock-btn"
                 onClick={() => fitToView()}
                 title="Fit Entire Graph to Screen"
               >
-                <IconMaximize className="w-4 h-4" />
+                <IconMaximize style={{ width: 15, height: 15 }} />
               </button>
               <button
                 type="button"
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-indigo-300 transition-colors"
+                className="kg-dock-btn"
                 onClick={centerOnFocused}
                 title="Center on Focal Claim / Pair"
               >
-                <IconCompass className="w-4 h-4 text-indigo-400" />
+                <IconCompass style={{ width: 15, height: 15, color: '#818cf8' }} />
               </button>
               <button
                 type="button"
-                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-indigo-300 transition-colors"
+                className="kg-dock-btn"
                 onClick={() => reSimulateLayout(layoutSpacing)}
                 title="Auto-Untangle Nodes (Re-simulate Layout)"
               >
-                <IconRefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                <IconRefreshCw style={{ width: 14, height: 14, color: '#818cf8' }} />
               </button>
             </div>
 
-            <div className="w-[1px] h-4 bg-slate-700/80"></div>
+            <div className="kg-dock-divider"></div>
 
             {/* Node Spacing Segmented Control */}
-            <div className="flex items-center gap-1 bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/60 text-[10px]">
-              <span className="px-1.5 text-slate-400 font-semibold uppercase tracking-wider">Spacing:</span>
+            <div className="kg-spacing-picker">
+              <span className="kg-spacing-label">Spacing:</span>
               {[
                 { label: 'Compact', val: 0.85 },
                 { label: 'Balanced', val: 1.15 },
@@ -1649,11 +1642,7 @@ export default function KnowledgeGraphView() {
                 <button
                   key={sp.label}
                   type="button"
-                  className={`px-2 py-0.5 rounded transition-all font-medium ${
-                    layoutSpacing === sp.val
-                      ? 'bg-indigo-600 text-white shadow-sm font-semibold'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
-                  }`}
+                  className={`kg-spacing-btn ${layoutSpacing === sp.val ? 'active' : ''}`}
                   onClick={() => handleSpacingChange(sp.val)}
                 >
                   {sp.label}
@@ -1664,109 +1653,117 @@ export default function KnowledgeGraphView() {
         </div>
 
         {/* Right-Hand Inspector Drawer */}
-        <div className="w-96 bg-slate-900 border-l border-slate-800 flex flex-col z-20 shadow-2xl overflow-hidden">
-          <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-xs text-white uppercase tracking-wider">Provenance Inspector</span>
+        <div className="kg-inspector">
+          <div className="kg-inspector-header">
+            <div className="kg-inspector-title">
+              <IconSparkles style={{ width: 15, height: 15, color: '#818cf8' }} />
+              <span>Provenance Inspector</span>
               {selectedNode && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-bold bg-slate-800 text-indigo-400">
+                <span className="kg-inspector-badge">
                   {selectedNode.type}
                 </span>
               )}
               {selectedEdge && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-bold bg-slate-800 text-rose-400">
+                <span className="kg-inspector-badge" style={{ color: '#f43f5e' }}>
                   relationship
                 </span>
               )}
             </div>
             <button
               type="button"
-              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+              className="kg-inspector-close"
               onClick={() => {
                 setSelectedNode(null);
                 setSelectedEdge(null);
               }}
+              title="Close Inspector"
             >
-              <IconX className="w-4 h-4" />
+              <IconX style={{ width: 16, height: 16 }} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="kg-inspector-body">
             {/* INSPECTOR VIEW 1: FACT CLAIM NODE */}
             {selectedNode && selectedNode.type === 'fact' && (
-              <div className="space-y-4">
+              <>
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400">
+                  <span className="kg-inspector-label" style={{ color: '#818cf8' }}>
                     {selectedNode.entity_name} &bull; {selectedNode.predicate}
                   </span>
-                  <h3 className="text-lg font-bold text-white mt-0.5 flex items-baseline gap-1.5">
-                    <span>{selectedNode.value}</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                    <h3 className="kg-inspector-value" style={{ fontSize: 20, margin: 0 }}>
+                      {selectedNode.value}
+                    </h3>
                     {selectedNode.unit && (
-                      <span className="text-xs font-normal text-slate-400">{selectedNode.unit}</span>
+                      <span style={{ fontSize: 13, color: '#94a3b8' }}>{selectedNode.unit}</span>
                     )}
-                  </h3>
+                  </div>
                 </div>
 
                 {/* Primary Action Button: Jump to PDF Viewer */}
                 {selectedNode.document_id && (
                   <Link
                     to={`/viewer/${selectedNode.document_id}?fact_id=${selectedNode.id}`}
-                    className="w-full btn btn-primary btn-sm flex items-center justify-center gap-2 py-2 text-xs font-semibold shadow-md"
+                    className="kg-inspector-btn kg-inspector-btn-primary"
                   >
-                    <IconEye className="w-4 h-4" />
+                    <IconEye style={{ width: 16, height: 16 }} />
                     <span>Open in PDF Viewer (Page {selectedNode.page_number})</span>
                   </Link>
                 )}
 
-                {/* 6-Grid Attributes */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block">Fiscal Period</span>
-                    <span className="font-semibold text-slate-200">{selectedNode.fiscal_year || 'FY2024'}</span>
+                {/* 4-Grid Attributes */}
+                <div className="kg-inspector-grid">
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Fiscal Period</span>
+                    <span className="kg-inspector-card-val">{selectedNode.fiscal_year || 'FY2024'}</span>
                   </div>
-                  <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block">Confidence</span>
-                    <span className="font-semibold text-emerald-400">
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Confidence</span>
+                    <span className="kg-inspector-card-val success">
                       {((selectedNode.confidence || 0.95) * 100).toFixed(0)}% Verified
                     </span>
                   </div>
-                  <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block">Category</span>
-                    <span className="font-semibold text-slate-200 capitalize">{selectedNode.category || 'Financial'}</span>
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Category</span>
+                    <span className="kg-inspector-card-val" style={{ textTransform: 'capitalize' }}>
+                      {selectedNode.category || 'Financial'}
+                    </span>
                   </div>
-                  <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase block">Accounting Scope</span>
-                    <span className="font-semibold text-slate-200">{selectedNode.basis || 'GAAP'} &bull; {selectedNode.scope || 'Consol.'}</span>
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Accounting Scope</span>
+                    <span className="kg-inspector-card-val">
+                      {selectedNode.basis || 'GAAP'} &bull; {selectedNode.scope || 'Consol.'}
+                    </span>
                   </div>
                 </div>
 
                 {/* Ground-Truth Verbatim Excerpt */}
                 <div>
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  <label className="kg-inspector-label">
                     Verbatim Grounding Excerpt
                   </label>
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 text-xs font-mono text-slate-300 leading-relaxed">
+                  <div className="kg-inspector-quote">
                     "{selectedNode.snippet || selectedNode.value}"
                   </div>
                 </div>
 
                 {/* Source Document Card */}
-                <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-800 flex items-center justify-between text-xs">
+                <div className="kg-inspector-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
-                    <span className="text-[10px] text-slate-500 font-mono block">Source Document</span>
-                    <span className="font-semibold text-slate-200">{selectedNode.document_name}</span>
+                    <span className="kg-inspector-card-label">Source Document</span>
+                    <span className="kg-inspector-card-val">{selectedNode.document_name}</span>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-mono font-bold text-[10px]">
+                  <span style={{ padding: '3px 8px', borderRadius: 6, background: '#083344', color: '#67e8f9', fontFamily: 'monospace', fontWeight: 700, fontSize: 11 }}>
                     Page {selectedNode.page_number}
                   </span>
                 </div>
 
                 {/* Relationships Involving this Fact */}
                 <div>
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                  <label className="kg-inspector-label">
                     Connected Relationships
                   </label>
-                  <div className="space-y-1.5">
+                  <div>
                     {graphData.edges
                       .filter(
                         (e) =>
@@ -1777,26 +1774,28 @@ export default function KnowledgeGraphView() {
                       .map((rel) => (
                         <div
                           key={rel.id}
-                          className="p-2 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer transition-colors"
+                          className="kg-rel-list-item"
                           onClick={() => setSelectedEdge(rel)}
                         >
-                          <div className="flex items-center justify-between text-xs mb-1">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                             <span
-                              className={`font-bold font-mono text-[10px] uppercase ${
+                              className={`kg-rel-badge ${
                                 rel.type === 'CONTRADICTS'
-                                  ? 'text-rose-400'
+                                  ? 'contradicts'
                                   : rel.type === 'SUPERSEDES'
-                                  ? 'text-amber-400'
-                                  : 'text-emerald-400'
+                                  ? 'supersedes'
+                                  : rel.type === 'CONTEXTUAL_DIFFERENCE'
+                                  ? 'contextual'
+                                  : 'corroborates'
                               }`}
                             >
                               {rel.type}
                             </span>
-                            <span className="text-[10px] font-mono text-slate-500">
+                            <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>
                               {Math.round((rel.confidence || 0.9) * 100)}% conf
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-300 line-clamp-2 m-0">
+                          <p style={{ fontSize: 12, color: '#cbd5e1', margin: 0, lineHeight: 1.4 }}>
                             {rel.explanation || 'Cross-document relationship detected between facts.'}
                           </p>
                         </div>
@@ -1807,126 +1806,136 @@ export default function KnowledgeGraphView() {
                         e.type !== 'HAS_FACT' &&
                         e.type !== 'EXTRACTED_FROM'
                     ).length === 0 && (
-                      <div className="text-xs text-slate-500 italic p-2 rounded bg-slate-950/40 border border-dashed border-slate-800">
+                      <div style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic', padding: 12, borderRadius: 8, background: '#090e1a', border: '1px dashed #1e293b' }}>
                         No cross-document conflicts or supersessions detected for this single fact.
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* INSPECTOR VIEW 2: RELATIONSHIP EDGE */}
             {selectedEdge && (
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs font-bold font-mono uppercase ${
-                        selectedEdge.type === 'CONTRADICTS'
-                          ? 'bg-rose-950/80 text-rose-300 border border-rose-800'
-                          : selectedEdge.type === 'SUPERSEDES'
-                          ? 'bg-amber-950/80 text-amber-300 border border-amber-800'
-                          : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800'
-                      }`}
-                    >
-                      {selectedEdge.type}
-                    </span>
-                    <span className="text-xs font-mono font-bold text-slate-300">
-                      {Math.round((selectedEdge.confidence || 0.9) * 100)}% Confidence
-                    </span>
-                  </div>
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span
+                    className={`kg-rel-badge ${
+                      selectedEdge.type === 'CONTRADICTS'
+                        ? 'contradicts'
+                        : selectedEdge.type === 'SUPERSEDES'
+                        ? 'supersedes'
+                        : selectedEdge.type === 'CONTEXTUAL_DIFFERENCE'
+                        ? 'contextual'
+                        : 'corroborates'
+                    }`}
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    {selectedEdge.type}
+                  </span>
+                  <span style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0' }}>
+                    {Math.round((selectedEdge.confidence || 0.9) * 100)}% Confidence
+                  </span>
                 </div>
 
                 {/* Primary Action Button: View Full Reasoning Trace */}
                 <button
                   type="button"
-                  className="w-full btn btn-primary btn-sm flex items-center justify-center gap-2 py-2 text-xs font-semibold shadow-md"
+                  className="kg-inspector-btn kg-inspector-btn-primary"
                   onClick={() => setActiveReasoningRel({ id: selectedEdge.rel_id || selectedEdge.id })}
                 >
-                  <IconSparkles className="w-4 h-4 text-amber-300" />
+                  <IconSparkles style={{ width: 16, height: 16, color: '#fde68a' }} />
                   <span>View Full Reasoning Trace & Matrix</span>
                 </button>
 
                 {/* Explanation Rationale */}
                 <div>
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  <label className="kg-inspector-label">
                     LLM Rationale & Conflict Rationale
                   </label>
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs text-slate-200 leading-relaxed">
+                  <div className="kg-inspector-quote" style={{ fontStyle: 'normal' }}>
                     {selectedEdge.explanation || 'Cross-document reasoning engine identified alignment discrepancy.'}
                   </div>
                 </div>
 
                 {/* Fact A vs Fact B Comparison Cards */}
-                <div className="space-y-2">
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                    <span className="text-[10px] font-mono text-indigo-400 font-bold uppercase block">
+                <div>
+                  <label className="kg-inspector-label">
+                    Compared Grounded Claims
+                  </label>
+                  <div className="kg-compare-box">
+                    <span className="kg-compare-title" style={{ color: '#818cf8' }}>
                       Fact Claim A
                     </span>
-                    <div className="text-xs font-semibold text-white mt-1">
+                    <div className="kg-compare-pred">
                       {selectedEdge.fact_a_predicate || 'Attribute'}:{' '}
-                      <span className="text-emerald-400">{selectedEdge.fact_a_value}</span>
+                      <span style={{ color: '#34d399', fontWeight: 800 }}>{selectedEdge.fact_a_value}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-1">
+                    <div className="kg-compare-doc">
                       Doc: {selectedEdge.fact_a_doc || 'Source A'}
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-                    <span className="text-[10px] font-mono text-purple-400 font-bold uppercase block">
+                  <div className="kg-compare-box">
+                    <span className="kg-compare-title" style={{ color: '#c084fc' }}>
                       Fact Claim B
                     </span>
-                    <div className="text-xs font-semibold text-white mt-1">
+                    <div className="kg-compare-pred">
                       {selectedEdge.fact_b_predicate || 'Attribute'}:{' '}
-                      <span className="text-rose-400">{selectedEdge.fact_b_value}</span>
+                      <span style={{ color: '#fb7185', fontWeight: 800 }}>{selectedEdge.fact_b_value}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-1">
+                    <div className="kg-compare-doc">
                       Doc: {selectedEdge.fact_b_doc || 'Source B'}
                     </div>
                   </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* INSPECTOR VIEW 3: ENTITY HUB NODE */}
             {selectedNode && selectedNode.type === 'entity' && (
-              <div className="space-y-4">
+              <>
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-400">
+                  <span className="kg-inspector-label" style={{ color: '#818cf8' }}>
                     Entity Hub
                   </span>
-                  <h3 className="text-xl font-bold text-white mt-0.5">{selectedNode.label}</h3>
+                  <h3 className="kg-inspector-value" style={{ fontSize: 22, margin: '4px 0 0 0' }}>
+                    {selectedNode.label}
+                  </h3>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 font-mono block">Grounded Claims</span>
-                    <span className="text-base font-bold text-white">{selectedNode.fact_count}</span>
+                <div className="kg-inspector-grid">
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Grounded Claims</span>
+                    <span className="kg-inspector-card-val" style={{ fontSize: 18 }}>
+                      {selectedNode.fact_count}
+                    </span>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-                    <span className="text-[10px] text-slate-500 font-mono block">Contradictions</span>
-                    <span className="text-base font-bold text-rose-400">{selectedNode.contradiction_count}</span>
+                  <div className="kg-inspector-card">
+                    <span className="kg-inspector-card-label">Contradictions</span>
+                    <span className="kg-inspector-card-val danger" style={{ fontSize: 18 }}>
+                      {selectedNode.contradiction_count}
+                    </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
+                  <label className="kg-inspector-label">
                     Claims For This Entity
                   </label>
-                  <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                     {graphData.nodes
                       .filter((n) => n.type === 'fact' && n.entity_name === selectedNode.label)
                       .map((f) => (
                         <div
                           key={f.id}
-                          className="p-2 rounded-lg bg-slate-950 border border-slate-800 hover:border-indigo-500/60 cursor-pointer transition-colors"
+                          className="kg-rel-list-item"
                           onClick={() => setSelectedNode(f)}
                         >
-                          <div className="text-xs font-semibold text-white">
-                            {f.predicate}: <span className="text-emerald-400">{f.value}</span>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#ffffff' }}>
+                            {f.predicate}: <span style={{ color: '#34d399' }}>{f.value}</span>
                           </div>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center justify-between">
+                          <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'monospace', marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
                             <span>{f.document_name}</span>
                             <span>p. {f.page_number}</span>
                           </div>
@@ -1934,54 +1943,62 @@ export default function KnowledgeGraphView() {
                       ))}
                   </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* INSPECTOR VIEW 4: DOCUMENT NODE */}
             {selectedNode && selectedNode.type === 'document' && (
-              <div className="space-y-4">
+              <>
                 <div>
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-400">
+                  <span className="kg-inspector-label" style={{ color: '#22d3ee' }}>
                     Source Document
                   </span>
-                  <h3 className="text-base font-bold text-white mt-0.5">{selectedNode.label}</h3>
+                  <h3 className="kg-inspector-value" style={{ fontSize: 18, margin: '4px 0 0 0' }}>
+                    {selectedNode.label}
+                  </h3>
                 </div>
 
                 <Link
                   to={`/viewer/${selectedNode.document_id}`}
-                  className="w-full btn btn-primary btn-sm flex items-center justify-center gap-2 py-2 text-xs font-semibold shadow-md"
+                  className="kg-inspector-btn kg-inspector-btn-teal"
                 >
-                  <IconEye className="w-4 h-4" />
+                  <IconEye style={{ width: 16, height: 16 }} />
                   <span>Open Entire PDF in Viewer</span>
                 </Link>
 
-                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Pages:</span>
-                    <span className="text-white font-mono font-bold">{selectedNode.page_count}</span>
+                <div className="kg-inspector-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                    <span style={{ color: '#94a3b8' }}>Total Pages:</span>
+                    <span style={{ color: '#ffffff', fontFamily: 'monospace', fontWeight: 700 }}>
+                      {selectedNode.page_count}
+                    </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Extracted Claims in Graph:</span>
-                    <span className="text-cyan-400 font-mono font-bold">{selectedNode.facts_count}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                    <span style={{ color: '#94a3b8' }}>Extracted Claims in Graph:</span>
+                    <span style={{ color: '#22d3ee', fontFamily: 'monospace', fontWeight: 700 }}>
+                      {selectedNode.facts_count}
+                    </span>
                   </div>
                   {selectedNode.upload_date && (
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Ingestion Date:</span>
-                      <span className="text-slate-300 font-mono text-[10px]">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                      <span style={{ color: '#94a3b8' }}>Ingestion Date:</span>
+                      <span style={{ color: '#cbd5e1', fontFamily: 'monospace', fontSize: 11 }}>
                         {new Date(selectedNode.upload_date).toLocaleDateString()}
                       </span>
                     </div>
                   )}
                 </div>
-              </div>
+              </>
             )}
 
             {/* DEFAULT EMPTY STATE FOR INSPECTOR */}
             {!selectedNode && !selectedEdge && (
-              <div className="text-center py-16 px-4 text-slate-500 space-y-3">
-                <IconCompass className="w-10 h-10 text-slate-600 mx-auto" />
-                <h4 className="text-xs font-bold text-slate-300">Select any Node or Link</h4>
-                <p className="text-xs text-slate-500 leading-relaxed">
+              <div className="kg-empty-state">
+                <IconCompass style={{ width: 44, height: 44, color: '#475569' }} />
+                <h4 style={{ fontSize: 14, fontWeight: 700, color: '#cbd5e1', margin: 0 }}>
+                  Select any Node or Link
+                </h4>
+                <p style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6, margin: 0 }}>
                   Click on any Fact node, Entity hub, Document, or colored Relationship line to inspect character-exact provenance and trigger reasoning audits.
                 </p>
               </div>
