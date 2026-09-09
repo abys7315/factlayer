@@ -3,8 +3,8 @@
  * Features automatic failover between Vite proxy (/api/v1) and direct backend (http://localhost:8000/api/v1).
  */
 
-const PROXY_API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-const DIRECT_API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://factlayer-backend.onrender.com/api/v1' : 'http://localhost:8000/api/v1');
+const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://factlayer-backend.onrender.com/api/v1' : '/api/v1');
+const LOCAL_FALLBACK = 'http://localhost:8000/api/v1';
 
 async function handleResponse(response) {
   if (!response.ok) {
@@ -21,17 +21,19 @@ async function handleResponse(response) {
 }
 
 async function request(path, options = {}) {
-  // Try proxy first; on connection refusal / network error, fall back directly to backend port 8000
   try {
-    const res = await fetch(`${PROXY_API_BASE}${path}`, options);
+    const res = await fetch(`${API_BASE}${path}`, options);
     return await handleResponse(res);
-  } catch (proxyErr) {
-    try {
-      const directRes = await fetch(`${DIRECT_API_BASE}${path}`, options);
-      return await handleResponse(directRes);
-    } catch {
-      throw proxyErr;
+  } catch (err) {
+    if (!import.meta.env.PROD) {
+      try {
+        const directRes = await fetch(`${LOCAL_FALLBACK}${path}`, options);
+        return await handleResponse(directRes);
+      } catch {
+        throw err;
+      }
     }
+    throw err;
   }
 }
 
@@ -154,11 +156,11 @@ export const api = {
 
   // Viewer & PDF
   getPdfUrl(docId) {
-    return `${PROXY_API_BASE}/viewer/${docId}/pdf`;
+    return `${API_BASE}/viewer/${docId}/pdf`;
   },
 
   getPageImageUrl(docId, pageNumber = 1, dpi = 150) {
-    return `${PROXY_API_BASE}/viewer/${docId}/page/${pageNumber}/image?dpi=${dpi}`;
+    return `${API_BASE}/viewer/${docId}/page/${pageNumber}/image?dpi=${dpi}`;
   },
 
   async getViewerOverlay(docId, factId = null) {
@@ -169,9 +171,9 @@ export const api = {
   // Real-time Event Stream (SSE)
   getEventSource() {
     try {
-      return new EventSource(`${PROXY_API_BASE}/events/stream`);
+      return new EventSource(`${API_BASE}/events/stream`);
     } catch {
-      return new EventSource(`${DIRECT_API_BASE}/events/stream`);
+      return new EventSource(`${LOCAL_FALLBACK}/events/stream`);
     }
   },
 };
