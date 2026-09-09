@@ -376,8 +376,8 @@ FactLayer systematically evaluates five distinct dimensions before declaring any
 
 ## 5. Video Demo Link
 
-### 🎥 [Watch 3-Minute Video Demo](https://youtu.be/DEMO_VIDEO_LINK_PLACEHOLDER)
-*(Replace `DEMO_VIDEO_LINK_PLACEHOLDER` with your hosted YouTube/Loom demo recording)*
+### 🎥 [Watch 3-Minute Video Demo](https://drive.google.com/file/d/1XPDpzebVyy1Wanrf8zpkgfL9uc0-Ji-G/view?usp=sharing)
+
 
 A complete 180-second walkthrough demonstrating live PDF upload, character bounding-box grounding, and the four required evaluation cases on `http://localhost:5173`.
 
