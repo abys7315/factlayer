@@ -185,115 +185,155 @@ export default function DocumentList() {
           <table className="table-custom">
             <thead>
               <tr>
-                <th>Document File</th>
-                <th>Type / Doc Date</th>
-                <th>Pages / Hash</th>
-                <th>Status / Pipeline</th>
-                <th>Created</th>
-                <th className="text-right">Actions</th>
+                <th style={{ width: '30%' }}>Document File</th>
+                <th style={{ width: '16%' }}>Type & Date</th>
+                <th style={{ width: '14%' }}>Pages & Hash</th>
+                <th style={{ width: '14%' }}>Processing Status</th>
+                <th style={{ width: '10%' }}>Created</th>
+                <th style={{ width: '16%', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredDocs.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-12 text-muted">
-                    {loading ? 'Loading document repository...' : 'No documents found. Upload your first PDF to begin!'}
+                  <td colSpan="6" className="text-center py-16 text-slate-500">
+                    <div className="flex flex-col items-center gap-2">
+                      <IconFileText className="w-10 h-10 text-slate-300" />
+                      <p className="font-semibold text-base text-slate-700">
+                        {loading ? 'Loading document repository...' : 'No documents found in this workspace.'}
+                      </p>
+                      <p className="text-xs text-slate-400">Upload a PDF above to extract candidate facts and analyze contradictions.</p>
+                    </div>
                   </td>
                 </tr>
               ) : (
-                filteredDocs.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-surface-alt/60 transition-colors">
-                    <td>
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded bg-indigo-500/10 text-indigo-400">
-                          <IconFileText className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <Link to={`/documents/${doc.id}`} className="font-semibold text-primary hover:text-accent transition-colors">
-                            {doc.filename}
-                          </Link>
-                          <div className="text-xs text-muted font-mono">
-                            ID: {doc.id.substring(0, 8)}...
+                filteredDocs.map((doc) => {
+                  const statusLower = (doc.status || 'completed').toLowerCase();
+                  const isParsing = statusLower === 'parsing' || statusLower === 'processing';
+                  const isFailed = statusLower === 'failed' || statusLower === 'error';
+                  const isCompleted = statusLower === 'completed';
+
+                  return (
+                    <tr key={doc.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-600 shrink-0">
+                            <IconFileText className="w-5 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <Link
+                              to={`/documents/${doc.id}`}
+                              className="font-bold text-[15px] text-slate-900 hover:text-blue-600 transition-colors block truncate max-w-[340px]"
+                              title={doc.filename}
+                            >
+                              {doc.filename}
+                            </Link>
+                            <div className="text-xs text-slate-500 font-mono mt-0.5 flex items-center gap-1.5">
+                              <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono text-[11px]">
+                                ID: {doc.id.substring(0, 8)}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge-pill font-medium">
-                        {doc.document_type || 'General PDF'}
-                      </span>
-                      {doc.doc_date && (
-                        <div className="text-xs text-muted mt-1 font-mono">
-                          Date: {doc.doc_date}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div className="text-xs text-secondary font-mono">
-                        {doc.page_count ?? 1} pages
-                      </div>
-                      <div className="text-[10px] text-muted font-mono truncate max-w-[120px]">
-                        sha256: {doc.sha256_hash?.substring(0, 10)}...
-                      </div>
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => setActiveProcessingDoc({ documentId: doc.id, filename: doc.filename })}
-                        className={`status-badge status-${(doc.status || 'completed').toLowerCase()} hover:opacity-80 transition-opacity text-left`}
-                        title="Click to view 11-stage preprocessing pipeline progress"
-                      >
-                        {doc.status}
-                        {doc.current_stage && doc.status !== 'COMPLETED' && (
-                          <span className="block text-[10px] opacity-80 uppercase">
-                            {doc.current_stage}
+                      </td>
+                      <td>
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="badge-pill font-bold text-xs bg-slate-100 text-slate-800 border border-slate-200">
+                            {doc.document_type ? doc.document_type.replace(/_/g, ' ') : 'General PDF'}
                           </span>
-                        )}
-                      </button>
-                      {doc.error_message && (
-                        <div className="text-xs text-rose-400 max-w-xs truncate mt-1">
-                          {doc.error_message}
+                          {doc.doc_date && (
+                            <span className="text-xs text-slate-600 font-medium">
+                              {doc.doc_date}
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </td>
-                    <td className="text-xs text-muted font-mono">
-                      {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'N/A'}
-                    </td>
-                    <td className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Link
-                          to={`/graph?document_id=${encodeURIComponent(doc.id)}&from=documents`}
-                          className="btn btn-secondary btn-sm flex items-center gap-1 text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
-                          title={`Explore Knowledge Graph for ${doc.filename}`}
-                        >
-                          <IconNetwork className="w-3.5 h-3.5" />
-                          <span>Graph</span>
-                        </Link>
-                        <Link
-                          to={`/viewer/${doc.id}`}
-                          className="btn btn-secondary btn-sm"
-                          title="Interactive PDF Viewer with Evidence Bounding Boxes"
-                        >
-                          <IconEye className="w-3.5 h-3.5" />
-                          <span>PDF Viewer</span>
-                        </Link>
-                        <Link
-                          to={`/documents/${doc.id}`}
-                          className="btn btn-ghost btn-sm"
-                          title="Document Detail"
-                        >
-                          <IconExternalLink className="w-3.5 h-3.5" />
-                        </Link>
+                      </td>
+                      <td>
+                        <div className="text-sm font-bold text-slate-800">
+                          {doc.page_count ?? 1} {doc.page_count === 1 ? 'page' : 'pages'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono truncate max-w-[130px] mt-0.5" title={doc.sha256_hash}>
+                          sha: {doc.sha256_hash ? doc.sha256_hash.substring(0, 10) : '—'}...
+                        </div>
+                      </td>
+                      <td>
                         <button
-                          className="btn btn-ghost btn-sm text-rose-400 hover:text-rose-300"
-                          onClick={(e) => handleDelete(doc.id, doc.filename, e)}
-                          title="Delete Document"
+                          onClick={() => setActiveProcessingDoc({ documentId: doc.id, filename: doc.filename })}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all text-left ${
+                            isCompleted
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                              : isParsing
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse hover:bg-blue-100'
+                              : isFailed
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                          title="Click to view 11-stage preprocessing pipeline progress"
                         >
-                          <IconTrash className="w-3.5 h-3.5" />
+                          {isCompleted && <IconCheckCircle className="w-3.5 h-3.5 text-emerald-600" />}
+                          {isParsing && <IconRefreshCw className="w-3.5 h-3.5 text-blue-600 animate-spin" />}
+                          {isFailed && <IconAlertTriangle className="w-3.5 h-3.5 text-rose-600" />}
+                          <span>{doc.status}</span>
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                        {doc.current_stage && doc.status !== 'COMPLETED' && (
+                          <div className="text-[10.5px] text-blue-600 font-semibold uppercase mt-0.5 tracking-wider">
+                            {doc.current_stage}
+                          </div>
+                        )}
+                        {doc.error_message && (
+                          <div className="text-xs text-rose-500 max-w-xs truncate mt-1" title={doc.error_message}>
+                            {doc.error_message}
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-sm font-medium text-slate-600">
+                        {doc.created_at
+                          ? new Date(doc.created_at).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            to={`/graph?document_id=${encodeURIComponent(doc.id)}&from=documents`}
+                            className="btn-trace-action"
+                            style={{ padding: '5px 10px', fontSize: '12.5px' }}
+                            title={`Explore Knowledge Graph for ${doc.filename}`}
+                          >
+                            <IconNetwork className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Graph</span>
+                          </Link>
+                          <Link
+                            to={`/viewer/${doc.id}`}
+                            className="btn-trace-action"
+                            style={{ padding: '5px 10px', fontSize: '12.5px' }}
+                            title="Interactive PDF Viewer with Evidence Bounding Boxes"
+                          >
+                            <IconEye className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Viewer</span>
+                          </Link>
+                          <Link
+                            to={`/documents/${doc.id}`}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Document Detail"
+                          >
+                            <IconExternalLink className="w-4 h-4" />
+                          </Link>
+                          <button
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            onClick={(e) => handleDelete(doc.id, doc.filename, e)}
+                            title="Delete Document"
+                          >
+                            <IconTrash className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

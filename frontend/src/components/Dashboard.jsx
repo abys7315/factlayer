@@ -127,35 +127,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Trust Badges Bar */}
-        <div className="trust-badges-bar">
-          <div className="trust-chip">
-            <span className="trust-badge-icon trust-trustpilot">★</span>
-            <span>Trustpilot</span>
-            <span className="stars-rating">★★★★★</span>
-            <span className="text-muted font-normal">4.9/5 Rating</span>
-          </div>
-
-          <div className="trust-chip">
-            <span className="trust-badge-icon trust-google">G</span>
-            <span>Google Rating</span>
-            <span className="stars-rating">★★★★★</span>
-            <span className="text-muted font-normal">4.9 Stars</span>
-          </div>
-
-          <div className="trust-chip">
-            <span className="trust-badge-icon trust-verified">✓</span>
-            <span>Accredited Engine</span>
-            <span className="text-muted font-normal">Gemini 2.0 Flash Verified</span>
-          </div>
-
-          <div className="trust-chip">
-            <IconCheckCircle className="w-4 h-4 text-emerald-500" />
-            <span>Zero Hallucination</span>
-            <span className="text-muted font-normal">Exact Bounding Boxes</span>
-          </div>
-        </div>
-
         {/* Hero Interactive Showcase Image */}
         <div className="hero-showcase-card">
           <img

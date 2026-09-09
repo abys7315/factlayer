@@ -79,6 +79,65 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
     navigate(`/viewer/${docId}?page=${pageNumber}&fact_id=${factId || ''}`);
   };
 
+  // Helper to format fact claim values cleanly (never repeating units, preferring human text)
+  const formatFactValue = (fact) => {
+    if (!fact) return { display: 'N/A', unit: null };
+    let display = null;
+    if (fact.value_text && String(fact.value_text).trim()) {
+      display = String(fact.value_text).trim();
+    } else if (fact.object_value && String(fact.object_value).trim()) {
+      display = String(fact.object_value).trim();
+    } else if (fact.normalized_value !== null && fact.normalized_value !== undefined) {
+      if (typeof fact.normalized_value === 'number') {
+        display = fact.normalized_value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+      } else {
+        display = String(fact.normalized_value);
+      }
+    } else {
+      display = 'N/A';
+    }
+
+    let unit = fact.unit || fact.currency || null;
+    if (unit) {
+      const lowerDisplay = display.toLowerCase();
+      const lowerUnit = unit.toLowerCase();
+      if (lowerDisplay.includes(lowerUnit) || (lowerUnit === '%' && lowerDisplay.includes('per cent')) || (lowerUnit === 'percent' && lowerDisplay.includes('%'))) {
+        unit = null; // Prevent duplicate like "81.8 per cent %"
+      }
+    }
+    return { display, unit };
+  };
+
+  // Clean human-friendly name for reasoning engine
+  const formatEngineName = (name) => {
+    if (!name) return 'Rules Engine';
+    if (name === 'temporal_reasoner') return 'Temporal Reasoning Engine';
+    if (name === 'contradiction_reasoner') return 'Contradiction Reasoner';
+    if (name === 'corroboration_reasoner') return 'Corroboration Engine';
+    return name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+  };
+
+  // Clean validation method formatting
+  const formatValidationMethod = (method, score) => {
+    const scoreStr = score !== undefined && score !== null ? ` (${Math.round(Number(score) * 100)}% Match)` : '';
+    if (!method || method === 'rule_exact') return `Exact Document Passage Match${scoreStr}`;
+    if (method === 'semantic_similarity') return `Semantic Similarity Match${scoreStr}`;
+    return `${method.replace(/_/g, ' ')}${scoreStr}`;
+  };
+
+  // Clean coordinate formatting
+  const formatCoordinates = (bbox) => {
+    if (!bbox) return 'Document Page Text Flow';
+    if (Array.isArray(bbox) && bbox.length >= 4) {
+      const [x0, y0, x1, y1] = bbox;
+      return `Page Coordinates: Top ${Math.round(y0 * 100)}%, Left ${Math.round(x0 * 100)}% (Width: ${Math.round((x1 - x0) * 100)}%, Height: ${Math.round((y1 - y0) * 100)}%)`;
+    }
+    if (typeof bbox === 'object' && bbox.x0 !== undefined) {
+      return `Page Coordinates: Top ${Math.round(bbox.y0 * 100)}%, Left ${Math.round(bbox.x0 * 100)}%`;
+    }
+    return 'Document Page Region';
+  };
+
   // Dimensions configuration for 7-Factor Alignment Matrix
   const dimensions = [
     {
@@ -91,7 +150,7 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
     },
     {
       id: 'predicate',
-      label: 'Attribute / Metric',
+      label: 'Metric / Attribute',
       isMatched: trace.same_predicate !== false,
       valueA: rel.fact_a?.attribute || rel.fact_a?.predicate || 'N/A',
       valueB: rel.fact_b?.attribute || rel.fact_b?.predicate || 'N/A',
@@ -99,7 +158,7 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
     },
     {
       id: 'period',
-      label: 'Fiscal Period / Date',
+      label: 'Fiscal Period',
       isMatched: trace.same_period !== false,
       valueA: rel.fact_a?.fiscal_year || rel.fact_a?.validity_start || rel.fact_a?.reporting_period_label || 'Current',
       valueB: rel.fact_b?.fiscal_year || rel.fact_b?.validity_start || rel.fact_b?.reporting_period_label || 'Current',
@@ -139,56 +198,40 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
     },
   ];
 
-  // Synthesis banner styling helper
+  // Synthesis banner styling configuration
   const getBannerConfig = () => {
     switch (relType) {
       case 'CONTRADICTS':
         return {
           icon: IconAlertTriangle,
-          borderColor: 'border-rose-300',
-          bgColor: 'bg-rose-50/70 text-rose-950',
           iconColor: 'text-rose-600',
           badgeClass: 'badge-contradicts',
-          symbol: '≠',
-          symbolClass: 'text-rose-600 bg-rose-100 border-rose-300',
           label: 'Factual Conflict / Contradiction',
-          desc: 'Claims share the same entity and attribute context but assert mutually incompatible or contradictory figures.',
+          desc: 'Claims share identical entity and attribute scope but assert mutually incompatible figures across filings.',
         };
       case 'SUPERSEDES':
         return {
           icon: IconClock,
-          borderColor: 'border-amber-300',
-          bgColor: 'bg-amber-50/70 text-amber-950',
           iconColor: 'text-amber-600',
           badgeClass: 'badge-supersedes',
-          symbol: '>',
-          symbolClass: 'text-amber-600 bg-amber-100 border-amber-300',
           label: 'Temporal Supersession',
-          desc: 'Target statement supersedes the earlier source statement due to subsequent publication or updated reporting.',
+          desc: 'Target statement supersedes the earlier source statement due to subsequent publication or revised reporting periods.',
         };
       case 'CORROBORATES':
         return {
           icon: IconCheckCircle,
-          borderColor: 'border-emerald-300',
-          bgColor: 'bg-emerald-50/70 text-emerald-950',
           iconColor: 'text-emerald-600',
           badgeClass: 'badge-corroborates',
-          symbol: '≡',
-          symbolClass: 'text-emerald-600 bg-emerald-100 border-emerald-300',
-          label: 'Mutual Corroboration',
-          desc: 'Independent documents corroborate identical values within tolerance, validating cross-document veracity.',
+          label: 'Cross-Document Corroboration',
+          desc: 'Independent documents corroborate consistent figures within tolerance, validating cross-document veracity.',
         };
       default:
         return {
           icon: IconGitCompare,
-          borderColor: 'border-blue-300',
-          bgColor: 'bg-blue-50/70 text-blue-950',
           iconColor: 'text-blue-600',
-          badgeClass: 'badge-contextual_difference',
-          symbol: '≈',
-          symbolClass: 'text-blue-600 bg-blue-100 border-blue-300',
-          label: 'Contextual Difference',
-          desc: 'Numerical differences are reconciled by differing reporting scopes, fiscal periods, or accounting standards.',
+          badgeClass: 'badge-refines',
+          label: 'Contextual Variance',
+          desc: 'Numerical differences are explained by divergent reporting scopes, accounting standards, or periods.',
         };
     }
   };
@@ -207,52 +250,53 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
       >
         {/* ── Modal Header ────────────────────────────────────────────── */}
         <div className="modal-header">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className={`type-badge ${bannerConfig.badgeClass} text-xs px-3 py-1`}>
-              {relType}
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="modal-title text-lg font-bold text-primary">
-                  Reasoning &amp; Provenance Trace
-                </h3>
-                {loadingDetail && (
-                  <span className="text-xs text-muted font-mono animate-pulse">
-                    (Syncing evidence...)
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs text-muted font-mono">
-                <span>Engine: <strong className="text-secondary">{engine}</strong></span>
-                <span>•</span>
-                <span className="inline-flex items-center gap-1.5 font-semibold text-accent">
-                  <span className="w-2 h-2 rounded-full bg-accent-primary animate-ping"></span>
-                  {confidence.toFixed(1)}% Confidence
-                </span>
-                <span>•</span>
-                <span
-                  className="cursor-pointer hover:text-primary transition-colors flex items-center gap-1"
-                  onClick={() => handleCopy(rel.id, 'relId')}
-                  title="Click to copy Relationship UUID"
-                >
-                  ID: {rel.id?.substring(0, 8)}...
-                  {copiedKey === 'relId' ? (
-                    <IconCheck className="w-3 h-3 text-emerald-500" />
-                  ) : (
-                    <IconCopy className="w-3 h-3 opacity-60" />
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className={`crystal-type-badge badge-${relType.toLowerCase()}`}>
+                {relType}
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#0F172A', margin: 0 }}>
+                    Reasoning &amp; Provenance Trace
+                  </h3>
+                  {loadingDetail && (
+                    <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 500 }}>
+                      (Syncing evidence...)
+                    </span>
                   )}
-                </span>
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-xs" style={{ color: '#64748B', fontWeight: 500 }}>
+                  <span>Engine: <strong style={{ color: '#0F172A', fontWeight: 600 }}>{formatEngineName(engine)}</strong></span>
+                  <span>•</span>
+                  <span style={{ color: '#059669', fontWeight: 600 }}>
+                    {confidence.toFixed(1)}% Confidence
+                  </span>
+                  <span>•</span>
+                  <span
+                    className="hover:text-primary transition-colors flex items-center gap-1 cursor-pointer"
+                    onClick={() => handleCopy(rel.id, 'relId')}
+                    title="Click to copy Relationship UUID"
+                  >
+                    <span>ID: {rel.id?.substring(0, 8)}...</span>
+                    {copiedKey === 'relId' ? (
+                      <IconCheck style={{ width: 13, height: 13, color: '#059669' }} />
+                    ) : (
+                      <IconCopy style={{ width: 13, height: 13, opacity: 0.7 }} />
+                    )}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          <button
-            className="btn-close hover:bg-surface-alt p-1.5 rounded-lg transition-colors"
-            onClick={onClose}
-            aria-label="Close modal"
-          >
-            <IconX className="w-5 h-5 text-muted hover:text-primary" />
-          </button>
+            <button
+              className="btn-close hover:bg-slate-100 p-2 rounded-lg transition-colors"
+              onClick={onClose}
+              aria-label="Close modal"
+            >
+              <IconX style={{ width: 20, height: 20, color: '#64748B' }} />
+            </button>
+          </div>
         </div>
 
         {/* ── Tab Navigation Bar ──────────────────────────────────────── */}
@@ -261,17 +305,17 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
             className={`trace-tab-btn ${activeTab === 'visual' ? 'active' : ''}`}
             onClick={() => setActiveTab('visual')}
           >
-            <IconSparkles className="w-4 h-4" />
-            <span>Visual Trace &amp; Claims</span>
+            <IconSparkles style={{ width: 15, height: 15 }} />
+            <span>Comparison &amp; Reasoning</span>
           </button>
           <button
             className={`trace-tab-btn ${activeTab === 'provenance' ? 'active' : ''}`}
             onClick={() => setActiveTab('provenance')}
           >
-            <IconFileText className="w-4 h-4" />
-            <span>Document Evidence &amp; Citations</span>
+            <IconFileText style={{ width: 15, height: 15 }} />
+            <span>Document Evidence</span>
             {(rel.evidence_a?.length || rel.evidence_b?.length) ? (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-accent-subtle text-accent font-mono text-[10px]">
+              <span style={{ marginLeft: '4px', padding: '1px 6px', borderRadius: '9999px', background: '#EFF6FF', color: '#1D4ED8', fontSize: '11px', fontWeight: 700 }}>
                 {(rel.evidence_a?.length || 0) + (rel.evidence_b?.length || 0)}
               </span>
             ) : null}
@@ -280,40 +324,38 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
             className={`trace-tab-btn ${activeTab === 'dimensions' ? 'active' : ''}`}
             onClick={() => setActiveTab('dimensions')}
           >
-            <IconLayers className="w-4 h-4" />
-            <span>7-Factor Alignment Matrix</span>
+            <IconLayers style={{ width: 15, height: 15 }} />
+            <span>7-Factor Audit Matrix</span>
           </button>
           <button
             className={`trace-tab-btn ${activeTab === 'raw' ? 'active' : ''}`}
             onClick={() => setActiveTab('raw')}
           >
-            <IconCpu className="w-4 h-4" />
-            <span>Audit Metadata (JSON)</span>
+            <IconCpu style={{ width: 15, height: 15 }} />
+            <span>Audit JSON</span>
           </button>
         </div>
 
         {/* ── Modal Body Content ──────────────────────────────────────── */}
-        <div className="modal-body p-6 space-y-6 overflow-y-auto flex-1">
+        <div className="modal-body space-y-6">
           {/* TAB 1: Visual Trace & Claims */}
           {activeTab === 'visual' && (
             <div className="space-y-6">
               {/* Analytical Synthesis Banner */}
-              <div
-                className={`p-4 rounded-xl border ${bannerConfig.borderColor} ${bannerConfig.bgColor} flex items-start gap-3 shadow-sm`}
-              >
-                <div className={`p-2 rounded-lg bg-white/80 shadow-xs ${bannerConfig.iconColor}`}>
-                  <BannerIcon className="w-5 h-5" />
+              <div className={`trace-synthesis-banner banner-${relType.toLowerCase()}`}>
+                <div style={{ padding: '8px', borderRadius: '10px', background: '#FFFFFF', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', flexShrink: 0 }}>
+                  <BannerIcon style={{ width: 20, height: 20 }} className={bannerConfig.iconColor} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-sm font-bold tracking-tight">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <h4 style={{ fontSize: '15px', fontWeight: 700, color: '#0F172A', margin: 0 }}>
                       {bannerConfig.label}
                     </h4>
-                    <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-white/70 font-semibold">
+                    <span style={{ fontSize: '11.5px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', background: '#FFFFFF', border: '1px solid #CBD5E1', color: '#475569' }}>
                       Tolerance: ±5.0%
                     </span>
                   </div>
-                  <p className="text-xs mt-1 leading-relaxed opacity-90">
+                  <p style={{ fontSize: '13.5px', marginTop: '5px', lineHeight: 1.6, color: '#334155', margin: '5px 0 0 0', fontWeight: 500 }}>
                     {rel.explanation || trace.explanation || bannerConfig.desc}
                   </p>
                 </div>
@@ -321,41 +363,44 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
 
               {/* Side-by-Side Claims Comparison */}
               <div>
-                <div className="text-xs uppercase tracking-wider font-bold text-muted font-mono mb-2 flex items-center justify-between">
-                  <span>Ground-Truth Claims Comparison</span>
-                  <span className="text-[11px] lowercase text-muted font-normal">
-                    Comparing Source Fact A against Target Fact B
+                <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+                  <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em', color: '#64748B', textTransform: 'uppercase' }}>
+                    Comparative Statement Analysis
+                  </span>
+                  <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748B' }}>
+                    Auditing Source Filing against Target Filing
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative">
                   {/* SOURCE FACT A CARD */}
                   <div className="trace-claim-card card-source">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-accent-primary"></span>
-                        <span className="text-[11px] font-mono uppercase font-bold text-accent">
-                          Source Claim A
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                        <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Source Statement
                         </span>
                       </div>
                       {rel.fact_a?.document_filename && (
                         <span
-                          className="text-[11px] text-muted truncate max-w-[170px] font-mono flex items-center gap-1"
+                          className="trace-context-chip"
+                          style={{ maxWidth: '220px' }}
                           title={rel.fact_a.document_filename}
                         >
-                          <IconFileText className="w-3 h-3 text-muted" />
-                          {rel.fact_a.document_filename}
+                          <IconFileText style={{ width: 13, height: 13, flexShrink: 0, color: '#2563EB' }} />
+                          <span className="truncate">{rel.fact_a.document_filename}</span>
                         </span>
                       )}
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Entity / Subject</span>
-                        <div className="text-sm font-bold text-primary flex items-center gap-2">
-                          <span>{rel.fact_a?.entity_name || rel.fact_a?.subject || 'Organization'}</span>
+                        <span className="trace-field-label">Entity</span>
+                        <div className="flex items-center gap-2">
+                          <span className="trace-entity-title">{rel.fact_a?.entity_name || rel.fact_a?.subject || 'Organization'}</span>
                           {rel.fact_a?.category && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-alt font-medium text-muted border border-border">
+                            <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '6px', background: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0' }}>
                               {rel.fact_a.category}
                             </span>
                           )}
@@ -363,57 +408,65 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Predicate / Attribute</span>
-                        <div className="text-xs font-semibold text-secondary font-mono">
+                        <span className="trace-field-label">Metric / Attribute</span>
+                        <div className="trace-predicate-title">
                           {rel.fact_a?.attribute || rel.fact_a?.predicate || 'Claimed Metric'}
                         </div>
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Asserted Claim Value</span>
-                        <div className="trace-value-display flex items-center justify-between text-emerald-600 bg-emerald-50/50 border-emerald-200">
-                          <span className="truncate">
-                            {typeof rel.fact_a?.normalized_value === 'object'
-                              ? JSON.stringify(rel.fact_a?.normalized_value)
-                              : String(rel.fact_a?.normalized_value ?? rel.fact_a?.value_text ?? 'N/A')}
-                          </span>
-                          <button
-                            className="p-1 hover:bg-emerald-100 rounded text-muted hover:text-primary transition-colors"
-                            onClick={() => handleCopy(String(rel.fact_a?.normalized_value ?? rel.fact_a?.value_text), 'valA')}
-                            title="Copy Value A"
-                          >
-                            {copiedKey === 'valA' ? <IconCheck className="w-3.5 h-3.5 text-emerald-600" /> : <IconCopy className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
+                        <span className="trace-field-label">Reported Value</span>
+                        {(() => {
+                          const { display, unit } = formatFactValue(rel.fact_a);
+                          return (
+                            <div className="trace-value-display val-source">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="trace-val-text truncate" title={display}>{display}</span>
+                                {unit && (
+                                  <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#DBEAFE', color: '#1D4ED8' }}>
+                                    {unit}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                className="p-1 hover:bg-blue-100 rounded text-slate-400 hover:text-slate-800 transition-colors flex-shrink-0 cursor-pointer"
+                                onClick={() => handleCopy(display, 'valA')}
+                                title="Copy Value"
+                              >
+                                {copiedKey === 'valA' ? <IconCheck style={{ width: 14, height: 14, color: '#059669' }} /> : <IconCopy style={{ width: 14, height: 14 }} />}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
 
-                      {/* Context Pills */}
-                      <div className="flex flex-wrap gap-1.5 pt-1 text-[11px] font-mono text-muted">
-                        <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                          Period: <strong className="text-secondary">{rel.fact_a?.fiscal_year || rel.fact_a?.validity_start || 'FY2026'}</strong>
+                      {/* Context Metadata */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        <span className="trace-context-chip chip-highlight">
+                          Period: <strong>{rel.fact_a?.fiscal_year || rel.fact_a?.validity_start || 'FY2026'}</strong>
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                          Scope: <strong className="text-secondary">{rel.fact_a?.scope || 'Consolidated'}</strong>
+                        <span className="trace-context-chip">
+                          Scope: <strong>{rel.fact_a?.scope || 'Consolidated'}</strong>
                         </span>
                         {rel.fact_a?.geography && (
-                          <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                            Geo: <strong className="text-secondary">{rel.fact_a.geography}</strong>
+                          <span className="trace-context-chip">
+                            Geo: <strong>{rel.fact_a.geography}</strong>
                           </span>
                         )}
                       </div>
 
                       {/* Jump to Viewer */}
                       {rel.fact_a?.document_id && (
-                        <div className="pt-2 border-t border-border flex items-center justify-between">
-                          <span className="text-[11px] text-muted font-mono">
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748B' }}>
                             Page {evA?.page_number || 1}
                           </span>
                           <button
-                            className="btn btn-ghost btn-sm text-xs text-accent flex items-center gap-1 hover:underline p-0 h-auto"
+                            className="btn-trace-action"
                             onClick={() => handleOpenViewer(rel.fact_a?.document_id, rel.fact_a_id, evA?.page_number || 1)}
                           >
-                            <span>Inspect in PDF Viewer</span>
-                            <IconExternalLink className="w-3 h-3" />
+                            <span>Inspect in Document</span>
+                            <IconExternalLink style={{ width: 12, height: 12 }} />
                           </button>
                         </div>
                       )}
@@ -422,31 +475,40 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
 
                   {/* TARGET FACT B CARD */}
                   <div className={`trace-claim-card card-target-${relType.toLowerCase()}`}>
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                        <span className="text-[11px] font-mono uppercase font-bold text-rose-600">
-                          Target Claim B
+                    <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full" style={{
+                          background: relType === 'CONTRADICTS' ? '#E11D48' : relType === 'SUPERSEDES' ? '#D97706' : '#16A34A'
+                        }}></span>
+                        <span style={{
+                          fontSize: '12.5px',
+                          fontWeight: 700,
+                          color: relType === 'CONTRADICTS' ? '#BE123C' : relType === 'SUPERSEDES' ? '#B45309' : '#15803D',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em'
+                        }}>
+                          Target Statement
                         </span>
                       </div>
                       {rel.fact_b?.document_filename && (
                         <span
-                          className="text-[11px] text-muted truncate max-w-[170px] font-mono flex items-center gap-1"
+                          className="trace-context-chip"
+                          style={{ maxWidth: '220px' }}
                           title={rel.fact_b.document_filename}
                         >
-                          <IconFileText className="w-3 h-3 text-muted" />
-                          {rel.fact_b.document_filename}
+                          <IconFileText style={{ width: 13, height: 13, flexShrink: 0, color: '#D97706' }} />
+                          <span className="truncate">{rel.fact_b.document_filename}</span>
                         </span>
                       )}
                     </div>
 
                     <div className="space-y-3">
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Entity / Subject</span>
-                        <div className="text-sm font-bold text-primary flex items-center gap-2">
-                          <span>{rel.fact_b?.entity_name || rel.fact_b?.subject || 'Organization'}</span>
+                        <span className="trace-field-label">Entity</span>
+                        <div className="flex items-center gap-2">
+                          <span className="trace-entity-title">{rel.fact_b?.entity_name || rel.fact_b?.subject || 'Organization'}</span>
                           {rel.fact_b?.category && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface-alt font-medium text-muted border border-border">
+                            <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '6px', background: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0' }}>
                               {rel.fact_b.category}
                             </span>
                           )}
@@ -454,61 +516,72 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Predicate / Attribute</span>
-                        <div className="text-xs font-semibold text-secondary font-mono">
+                        <span className="trace-field-label">Metric / Attribute</span>
+                        <div className="trace-predicate-title">
                           {rel.fact_b?.attribute || rel.fact_b?.predicate || 'Claimed Metric'}
                         </div>
                       </div>
 
                       <div>
-                        <span className="text-[10px] font-mono uppercase text-muted block">Asserted Claim Value</span>
-                        <div className={`trace-value-display flex items-center justify-between ${
-                          relType === 'CONTRADICTS'
-                            ? 'text-rose-600 bg-rose-50/50 border-rose-200'
-                            : 'text-indigo-600 bg-indigo-50/50 border-indigo-200'
-                        }`}>
-                          <span className="truncate">
-                            {typeof rel.fact_b?.normalized_value === 'object'
-                              ? JSON.stringify(rel.fact_b?.normalized_value)
-                              : String(rel.fact_b?.normalized_value ?? rel.fact_b?.value_text ?? 'N/A')}
-                          </span>
-                          <button
-                            className="p-1 hover:bg-rose-100 rounded text-muted hover:text-primary transition-colors"
-                            onClick={() => handleCopy(String(rel.fact_b?.normalized_value ?? rel.fact_b?.value_text), 'valB')}
-                            title="Copy Value B"
-                          >
-                            {copiedKey === 'valB' ? <IconCheck className="w-3.5 h-3.5 text-rose-600" /> : <IconCopy className="w-3.5 h-3.5" />}
-                          </button>
-                        </div>
+                        <span className="trace-field-label">Reported Value</span>
+                        {(() => {
+                          const { display, unit } = formatFactValue(rel.fact_b);
+                          const valTargetClass = relType === 'CONTRADICTS'
+                            ? 'val-contradicts'
+                            : relType === 'SUPERSEDES'
+                            ? 'val-supersedes'
+                            : relType === 'CORROBORATES'
+                            ? 'val-corroborates'
+                            : 'val-context';
+                          return (
+                            <div className={`trace-value-display ${valTargetClass}`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="trace-val-text truncate" title={display}>{display}</span>
+                                {unit && (
+                                  <span style={{ fontSize: '11.5px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: '#FEF3C7', color: '#92400E' }}>
+                                    {unit}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                className="p-1 hover:bg-amber-100 rounded text-slate-400 hover:text-slate-800 transition-colors flex-shrink-0 cursor-pointer"
+                                onClick={() => handleCopy(display, 'valB')}
+                                title="Copy Value"
+                              >
+                                {copiedKey === 'valB' ? <IconCheck style={{ width: 14, height: 14, color: '#059669' }} /> : <IconCopy style={{ width: 14, height: 14 }} />}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
 
-                      {/* Context Pills */}
-                      <div className="flex flex-wrap gap-1.5 pt-1 text-[11px] font-mono text-muted">
-                        <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                          Period: <strong className="text-secondary">{rel.fact_b?.fiscal_year || rel.fact_b?.validity_start || 'FY2026'}</strong>
+                      {/* Context Metadata */}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        <span className="trace-context-chip" style={{ background: '#FEF3C7', borderColor: '#FDE68A', color: '#92400E' }}>
+                          Period: <strong>{rel.fact_b?.fiscal_year || rel.fact_b?.validity_start || 'FY2026'}</strong>
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                          Scope: <strong className="text-secondary">{rel.fact_b?.scope || 'Consolidated'}</strong>
+                        <span className="trace-context-chip">
+                          Scope: <strong>{rel.fact_b?.scope || 'Consolidated'}</strong>
                         </span>
                         {rel.fact_b?.geography && (
-                          <span className="px-2 py-0.5 rounded bg-surface-alt border border-border">
-                            Geo: <strong className="text-secondary">{rel.fact_b.geography}</strong>
+                          <span className="trace-context-chip">
+                            Geo: <strong>{rel.fact_b.geography}</strong>
                           </span>
                         )}
                       </div>
 
                       {/* Jump to Viewer */}
                       {rel.fact_b?.document_id && (
-                        <div className="pt-2 border-t border-border flex items-center justify-between">
-                          <span className="text-[11px] text-muted font-mono">
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#64748B' }}>
                             Page {evB?.page_number || 1}
                           </span>
                           <button
-                            className="btn btn-ghost btn-sm text-xs text-accent flex items-center gap-1 hover:underline p-0 h-auto"
+                            className="btn-trace-action"
                             onClick={() => handleOpenViewer(rel.fact_b?.document_id, rel.fact_b_id, evB?.page_number || 1)}
                           >
-                            <span>Inspect in PDF Viewer</span>
-                            <IconExternalLink className="w-3 h-3" />
+                            <span>Inspect in Document</span>
+                            <IconExternalLink style={{ width: 12, height: 12 }} />
                           </button>
                         </div>
                       )}
@@ -519,66 +592,70 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
 
               {/* Execution Steps & Pipeline Audit */}
               <div className="space-y-3 pt-2">
-                <div className="text-xs uppercase tracking-wider font-bold text-muted font-mono flex items-center gap-2">
-                  <IconCpu className="w-4 h-4 text-accent-primary" />
+                <div className="flex items-center gap-2" style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748B' }}>
+                  <IconCpu style={{ width: 15, height: 15, color: '#2563EB' }} />
                   <span>Decision Engine Execution Pipeline</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-surface border border-border space-y-4">
+                <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '18px 20px' }}>
                   {/* Step 1 */}
                   <div className="audit-pipeline-step">
-                    <div className="audit-step-icon bg-emerald-100 text-emerald-700">1</div>
+                    <div className="audit-step-icon" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>1</div>
                     <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-primary">Candidate Grounding &amp; Entity Alignment</span>
-                        <span className="trace-dim-badge dim-matched text-[10px]">Verified Match</span>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>Entity Grounding &amp; Scope Alignment</span>
+                        <span className="audit-status-pill aligned">Verified Match</span>
                       </div>
-                      <p className="text-xs text-secondary mt-0.5">
-                        Both statements ground to entity <strong>"{rel.fact_a?.entity_name || rel.fact_a?.subject || 'Organization'}"</strong> and metric <strong>"{rel.fact_a?.attribute || rel.fact_a?.predicate || 'Action'}"</strong>.
+                      <p style={{ fontSize: '13px', color: '#475569', marginTop: '3px', lineHeight: 1.5, margin: '3px 0 0 0' }}>
+                        Both statements ground to entity <strong>"{rel.fact_a?.entity_name || rel.fact_a?.subject || 'Organization'}"</strong> and metric <strong>"{rel.fact_a?.attribute || rel.fact_a?.predicate || 'Metric'}"</strong>.
                       </p>
                     </div>
                   </div>
 
                   {/* Step 2 */}
                   <div className="audit-pipeline-step">
-                    <div className="audit-step-icon bg-emerald-100 text-emerald-700">2</div>
+                    <div className="audit-step-icon" style={{ background: '#ECFDF5', color: '#047857', border: '1px solid #A7F3D0' }}>2</div>
                     <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-primary">7-Factor Dimensional Filter</span>
-                        <span className="trace-dim-badge dim-matched text-[10px]">Context Aligned</span>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>7-Factor Multi-Dimensional Filter</span>
+                        <span className="audit-status-pill aligned">Context Aligned</span>
                       </div>
-                      <p className="text-xs text-secondary mt-0.5">
-                        Evaluated temporal periods ({rel.fact_a?.fiscal_year || 'FY2026'}), reporting scope, geographic coverage, and units. All contextual parameters confirmed comparable.
+                      <p style={{ fontSize: '13px', color: '#475569', marginTop: '3px', lineHeight: 1.5, margin: '3px 0 0 0' }}>
+                        Evaluated temporal periods (<strong>{rel.fact_a?.fiscal_year || 'FY2026'}</strong>), reporting scope, geographic coverage, and units. All contextual parameters confirmed comparable.
                       </p>
                     </div>
                   </div>
 
                   {/* Step 3 */}
                   <div className="audit-pipeline-step">
-                    <div className={`audit-step-icon ${relType === 'CONTRADICTS' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'}`}>3</div>
+                    <div className="audit-step-icon" style={{
+                      background: relType === 'CONTRADICTS' ? '#FFF1F2' : '#EFF6FF',
+                      color: relType === 'CONTRADICTS' ? '#BE123C' : '#1D4ED8',
+                      border: `1px solid ${relType === 'CONTRADICTS' ? '#FECDD3' : '#BFDBFE'}`
+                    }}>3</div>
                     <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-primary">Value Delta &amp; Discrepancy Evaluation</span>
-                        <span className={`trace-dim-badge ${relType === 'CONTRADICTS' ? 'dim-mismatch' : 'dim-matched'} text-[10px]`}>
-                          {relType === 'CONTRADICTS' ? 'Conflict Detected' : 'Compatible'}
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>Delta &amp; Discrepancy Reconciliation</span>
+                        <span className={`audit-status-pill ${relType === 'CONTRADICTS' ? 'conflict' : 'aligned'}`}>
+                          {relType === 'CONTRADICTS' ? 'Discrepancy Detected' : 'Compatible Values'}
                         </span>
                       </div>
-                      <p className="text-xs text-secondary mt-0.5">
-                        {rel.explanation || `Compared claimed values: "${rel.fact_a?.normalized_value ?? rel.fact_a?.value_text}" vs "${rel.fact_b?.normalized_value ?? rel.fact_b?.value_text}".`}
+                      <p style={{ fontSize: '13px', color: '#475569', marginTop: '3px', lineHeight: 1.5, margin: '3px 0 0 0' }}>
+                        {rel.explanation || `Reconciled values: "${formatFactValue(rel.fact_a).display}" vs "${formatFactValue(rel.fact_b).display}".`}
                       </p>
                     </div>
                   </div>
 
                   {/* Step 4 */}
                   <div className="audit-pipeline-step">
-                    <div className="audit-step-icon bg-accent-subtle text-accent font-bold">4</div>
+                    <div className="audit-step-icon" style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE' }}>4</div>
                     <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-primary">Verdict &amp; Confidence Assignment</span>
-                        <span className="trace-dim-badge bg-accent-light text-accent text-[10px] font-bold">Finalized</span>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#0F172A' }}>Audit Verdict &amp; Confidence Assignment</span>
+                        <span className="audit-status-pill" style={{ background: '#F1F5F9', color: '#334155', border: '1px solid #CBD5E1' }}>Finalized</span>
                       </div>
-                      <p className="text-xs text-secondary mt-0.5">
-                        Classified as <strong className="text-primary">{relType}</strong> with {confidence.toFixed(1)}% confidence score via <strong>{engine}</strong>.
+                      <p style={{ fontSize: '13px', color: '#475569', marginTop: '3px', lineHeight: 1.5, margin: '3px 0 0 0' }}>
+                        Classified as <strong>{relType}</strong> with <strong style={{ color: '#059669' }}>{confidence.toFixed(1)}% confidence score</strong> via <strong>{formatEngineName(engine)}</strong>.
                       </p>
                     </div>
                   </div>
@@ -589,127 +666,127 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
 
           {/* TAB 2: Ground-Truth Document Evidence & Citations */}
           {activeTab === 'provenance' && (
-            <div className="space-y-6">
-              <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 text-xs text-blue-900 flex items-center gap-2">
-                <IconBookOpen className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            <div className="space-y-5">
+              <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-sm text-blue-900 flex items-center gap-2.5">
+                <IconBookOpen style={{ width: 18, height: 18, color: '#2563EB', flexShrink: 0 }} />
                 <span>
-                  Ground-truth citations extracted verbatim from source PDF documents with verified page numbers and coordinate bounding boxes.
+                  Ground-truth excerpts extracted verbatim from verified PDF source documents with page anchoring.
                 </span>
               </div>
 
               {/* Evidence for Fact A */}
-              <div className="p-4 rounded-xl bg-surface border border-border space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="evidence-card">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-accent-primary"></span>
-                    <span className="text-xs font-bold font-mono uppercase text-accent">
-                      Evidence Citation — Fact A
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#2563EB' }}>
+                      Source Document Citation (Fact A)
                     </span>
                   </div>
-                  {evA?.page_number && (
-                    <span className="status-badge status-processing text-[11px]">
-                      Page {evA.page_number}
-                    </span>
-                  )}
+                  <span className="trace-context-chip chip-highlight">
+                    Page {evA?.page_number || 1}
+                  </span>
                 </div>
 
                 <div>
-                  <span className="text-[10px] uppercase font-mono text-muted block mb-1">Source Document</span>
-                  <div className="text-xs font-semibold text-primary flex items-center gap-1.5 font-mono">
-                    <IconFileText className="w-3.5 h-3.5 text-accent" />
-                    <span>{rel.fact_a?.document_filename || rel.fact_a?.document_id || 'Document A'}</span>
+                  <div className="trace-field-label">Document Title</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <IconFileText style={{ width: 16, height: 16, color: '#2563EB' }} />
+                    <span>{rel.fact_a?.document_filename || rel.fact_a?.document_id || 'Source Document A'}</span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-[10px] uppercase font-mono text-muted block mb-1">Verbatim PDF Excerpt Quote</span>
-                  <blockquote className="evidence-quote">
-                    "{evA?.excerpt || evA?.snippet || rel.fact_a?.original_text || rel.fact_a?.object_value || 'Direct claim excerpt extracted from document page text.'}"
+                  <div className="trace-field-label">Verbatim Filing Excerpt</div>
+                  <blockquote className="evidence-quote-box">
+                    “{evA?.excerpt || evA?.snippet || rel.fact_a?.original_text || rel.fact_a?.object_value || 'Direct claim excerpt extracted from document page text.'}”
                   </blockquote>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] font-mono text-muted pt-2 border-t border-border">
+                <div className="evidence-meta-row">
                   <div>
-                    <span className="text-muted block text-[10px]">VALIDATION</span>
-                    <span className="font-semibold text-emerald-600">
-                      {evA?.validation_method ? `${evA.validation_method} (Score: ${evA.validation_score ?? 1.0})` : 'Exact Match (1.0)'}
+                    <span className="trace-field-label" style={{ marginBottom: '2px' }}>Verification Method</span>
+                    <span style={{ fontWeight: 600, color: '#059669' }}>
+                      {formatValidationMethod(evA?.validation_method, evA?.validation_score)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-muted block text-[10px]">BOUNDING BOX</span>
-                    <span className="text-secondary">
-                      {evA?.bbox ? `[${evA.bbox.x0?.toFixed(2)}, ${evA.bbox.y0?.toFixed(2)}, ${evA.bbox.x1?.toFixed(2)}, ${evA.bbox.y1?.toFixed(2)}]` : 'Normalized Page Box'}
+                    <span className="trace-field-label" style={{ marginBottom: '2px' }}>Page Location</span>
+                    <span style={{ fontWeight: 600, color: '#334155' }}>
+                      {formatCoordinates(evA?.bbox)}
                     </span>
                   </div>
-                  <div className="flex items-end justify-end">
-                    {rel.fact_a?.document_id && (
-                      <button
-                        className="btn btn-secondary btn-sm text-xs flex items-center gap-1"
-                        onClick={() => handleOpenViewer(rel.fact_a?.document_id, rel.fact_a_id, evA?.page_number || 1)}
-                      >
-                        <IconExternalLink className="w-3 h-3 text-indigo-500" />
-                        <span>Inspect in PDF</span>
-                      </button>
-                    )}
-                  </div>
+                  {rel.fact_a?.document_id && (
+                    <button
+                      className="btn-trace-action"
+                      onClick={() => handleOpenViewer(rel.fact_a?.document_id, rel.fact_a_id, evA?.page_number || 1)}
+                    >
+                      <IconExternalLink style={{ width: 13, height: 13, color: '#2563EB' }} />
+                      <span>Inspect in Document</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Evidence for Fact B */}
-              <div className="p-4 rounded-xl bg-surface border border-border space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="evidence-card">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-                    <span className="text-xs font-bold font-mono uppercase text-rose-600">
-                      Evidence Citation — Fact B
+                    <span className="w-2.5 h-2.5 rounded-full" style={{
+                      background: relType === 'CONTRADICTS' ? '#E11D48' : '#D97706'
+                    }}></span>
+                    <span style={{
+                      fontSize: '13px',
+                      fontWeight: 700,
+                      color: relType === 'CONTRADICTS' ? '#BE123C' : '#B45309'
+                    }}>
+                      Target Document Citation (Fact B)
                     </span>
                   </div>
-                  {evB?.page_number && (
-                    <span className="status-badge status-processing text-[11px]">
-                      Page {evB.page_number}
-                    </span>
-                  )}
+                  <span className="trace-context-chip" style={{ background: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}>
+                    Page {evB?.page_number || 1}
+                  </span>
                 </div>
 
                 <div>
-                  <span className="text-[10px] uppercase font-mono text-muted block mb-1">Source Document</span>
-                  <div className="text-xs font-semibold text-primary flex items-center gap-1.5 font-mono">
-                    <IconFileText className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{rel.fact_b?.document_filename || rel.fact_b?.document_id || 'Document B'}</span>
+                  <div className="trace-field-label">Document Title</div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <IconFileText style={{ width: 16, height: 16, color: '#D97706' }} />
+                    <span>{rel.fact_b?.document_filename || rel.fact_b?.document_id || 'Target Document B'}</span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-[10px] uppercase font-mono text-muted block mb-1">Verbatim PDF Excerpt Quote</span>
-                  <blockquote className="evidence-quote border-rose-500">
-                    "{evB?.excerpt || evB?.snippet || rel.fact_b?.original_text || rel.fact_b?.object_value || 'Direct claim excerpt extracted from document page text.'}"
+                  <div className="trace-field-label">Verbatim Filing Excerpt</div>
+                  <blockquote className="evidence-quote-box" style={{
+                    borderLeftColor: relType === 'CONTRADICTS' ? '#E11D48' : '#D97706'
+                  }}>
+                    “{evB?.excerpt || evB?.snippet || rel.fact_b?.original_text || rel.fact_b?.object_value || 'Direct claim excerpt extracted from document page text.'}”
                   </blockquote>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] font-mono text-muted pt-2 border-t border-border">
+                <div className="evidence-meta-row">
                   <div>
-                    <span className="text-muted block text-[10px]">VALIDATION</span>
-                    <span className="font-semibold text-emerald-600">
-                      {evB?.validation_method ? `${evB.validation_method} (Score: ${evB.validation_score ?? 1.0})` : 'Exact Match (1.0)'}
+                    <span className="trace-field-label" style={{ marginBottom: '2px' }}>Verification Method</span>
+                    <span style={{ fontWeight: 600, color: '#059669' }}>
+                      {formatValidationMethod(evB?.validation_method, evB?.validation_score)}
                     </span>
                   </div>
                   <div>
-                    <span className="text-muted block text-[10px]">BOUNDING BOX</span>
-                    <span className="text-secondary">
-                      {evB?.bbox ? `[${evB.bbox.x0?.toFixed(2)}, ${evB.bbox.y0?.toFixed(2)}, ${evB.bbox.x1?.toFixed(2)}, ${evB.bbox.y1?.toFixed(2)}]` : 'Normalized Page Box'}
+                    <span className="trace-field-label" style={{ marginBottom: '2px' }}>Page Location</span>
+                    <span style={{ fontWeight: 600, color: '#334155' }}>
+                      {formatCoordinates(evB?.bbox)}
                     </span>
                   </div>
-                  <div className="flex items-end justify-end">
-                    {rel.fact_b?.document_id && (
-                      <button
-                        className="btn btn-secondary btn-sm text-xs flex items-center gap-1"
-                        onClick={() => handleOpenViewer(rel.fact_b?.document_id, rel.fact_b_id, evB?.page_number || 1)}
-                      >
-                        <IconExternalLink className="w-3 h-3 text-indigo-500" />
-                        <span>Inspect in PDF</span>
-                      </button>
-                    )}
-                  </div>
+                  {rel.fact_b?.document_id && (
+                    <button
+                      className="btn-trace-action"
+                      onClick={() => handleOpenViewer(rel.fact_b?.document_id, rel.fact_b_id, evB?.page_number || 1)}
+                    >
+                      <IconExternalLink style={{ width: 13, height: 13, color: '#2563EB' }} />
+                      <span>Inspect in Document</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -718,55 +795,60 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
           {/* TAB 3: 7-Factor Dimensional Alignment Matrix */}
           {activeTab === 'dimensions' && (
             <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-surface-alt border border-border text-xs text-secondary flex items-center justify-between">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-700 font-medium flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <IconInfo className="w-4 h-4 text-accent" />
+                  <IconInfo style={{ width: 16, height: 16, color: '#2563EB' }} />
                   <span>
-                    Each fact pair is audited across 7 distinct dimensions to eliminate false positives and distinguish contextual differences from true contradictions.
+                    Audited across 7 distinct dimensions to eliminate false positives and distinguish contextual shifts from contradictions.
                   </span>
                 </div>
-                <span className="font-mono text-xs font-semibold text-accent">
-                  {dimensions.filter((d) => d.isMatched).length} / {dimensions.length} Aligned
+                <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#2563EB' }}>
+                  {dimensions.filter((d) => d.isMatched).length} of {dimensions.length} Dimensions Aligned
                 </span>
               </div>
 
-              <div className="space-y-2">
-                {dimensions.map((dim) => (
-                  <div
-                    key={dim.id}
-                    className="p-3.5 rounded-xl bg-surface border border-border flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-accent-subtle transition-all"
-                  >
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-primary font-mono">{dim.label}</span>
-                        <span className={`trace-dim-badge ${dim.isMatched ? 'dim-matched' : 'dim-differing'}`}>
-                          {dim.isMatched ? (
-                            <>
-                              <IconCheck className="w-3 h-3" />
-                              <span>Aligned</span>
-                            </>
-                          ) : (
-                            <>
-                              <IconAlertTriangle className="w-3 h-3" />
-                              <span>Diverges</span>
-                            </>
-                          )}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted">{dim.description}</p>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs font-mono bg-surface-alt px-3 py-2 rounded-lg border border-border-subtle">
-                      <span className="text-emerald-700 font-semibold max-w-[140px] truncate" title={String(dim.valueA)}>
-                        {String(dim.valueA)}
-                      </span>
-                      <span className="text-muted font-bold">vs</span>
-                      <span className={`${dim.isMatched ? 'text-secondary' : 'text-rose-600'} font-semibold max-w-[140px] truncate`} title={String(dim.valueB)}>
-                        {String(dim.valueB)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+              <div style={{ overflowX: 'auto' }}>
+                <table className="audit-matrix-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '32%' }}>Audit Factor</th>
+                      <th style={{ width: '25%' }}>Source Filing (Fact A)</th>
+                      <th style={{ width: '25%' }}>Target Filing (Fact B)</th>
+                      <th style={{ width: '18%', textAlign: 'right' }}>Alignment Verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dimensions.map((dim) => (
+                      <tr key={dim.id}>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '13.5px' }}>{dim.label}</div>
+                          <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>{dim.description}</div>
+                        </td>
+                        <td>
+                          <span className="audit-val-badge" title={String(dim.valueA)}>{String(dim.valueA)}</span>
+                        </td>
+                        <td>
+                          <span className="audit-val-badge" title={String(dim.valueB)}>{String(dim.valueB)}</span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <span className={`audit-status-pill ${dim.isMatched ? 'aligned' : 'divergent'}`}>
+                            {dim.isMatched ? (
+                              <>
+                                <IconCheck style={{ width: 13, height: 13 }} />
+                                <span>Aligned</span>
+                              </>
+                            ) : (
+                              <>
+                                <IconAlertTriangle style={{ width: 13, height: 13 }} />
+                                <span>Divergent</span>
+                              </>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -775,61 +857,63 @@ export default function ReasoningTraceModal({ relationship, onClose }) {
           {activeTab === 'raw' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-muted uppercase">
-                  Machine-Readable Structured Execution Trace
+                <span style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748B' }}>
+                  Machine-Readable Structured Execution Payload
                 </span>
                 <button
-                  className="btn btn-secondary btn-sm text-xs flex items-center gap-1.5"
+                  className="btn-trace-action"
                   onClick={() => handleCopy(JSON.stringify(rel, null, 2), 'rawJson')}
                 >
                   {copiedKey === 'rawJson' ? (
                     <>
-                      <IconCheck className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>Copied Trace</span>
+                      <IconCheck style={{ width: 14, height: 14, color: '#16A34A' }} />
+                      <span>Copied JSON</span>
                     </>
                   ) : (
                     <>
-                      <IconCopy className="w-3.5 h-3.5 text-muted" />
+                      <IconCopy style={{ width: 14, height: 14 }} />
                       <span>Copy Full JSON</span>
                     </>
                   )}
                 </button>
               </div>
 
-              <pre className="p-4 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs text-emerald-400 overflow-x-auto max-h-80 shadow-inner">
-                {JSON.stringify(rel, null, 2)}
-              </pre>
+              <div style={{ background: '#0F172A', borderRadius: '12px', padding: '16px', border: '1px solid #334155', boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.4)' }}>
+                <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: '12px', color: '#38BDF8', lineHeight: 1.6, overflowX: 'auto', maxHeight: '340px' }}>
+                  {JSON.stringify(rel, null, 2)}
+                </pre>
+              </div>
             </div>
           )}
         </div>
 
         {/* ── Modal Footer ────────────────────────────────────────────── */}
-        <div className="modal-footer bg-surface-alt border-t border-border py-3 px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-muted font-mono">
-            <span>Press <kbd className="px-1.5 py-0.5 rounded bg-surface border border-border text-[10px]">Esc</kbd> to close</span>
+        <div className="modal-footer">
+          <div className="flex items-center gap-2 text-xs" style={{ color: '#64748B', fontWeight: 500 }}>
+            <span>Press <kbd className="px-2 py-0.5 rounded bg-slate-200 border border-slate-300 text-xs font-semibold text-slate-700">Esc</kbd> to close</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             {rel.fact_a?.document_id && (
               <button
-                className="btn btn-secondary btn-sm text-xs flex items-center gap-1"
+                className="btn-trace-action"
                 onClick={() => handleOpenViewer(rel.fact_a?.document_id, rel.fact_a_id, evA?.page_number || 1)}
               >
-                <IconExternalLink className="w-3.5 h-3.5 text-accent" />
+                <IconExternalLink style={{ width: 13, height: 13, color: '#2563EB' }} />
                 <span>Fact A in Viewer</span>
               </button>
             )}
             {rel.fact_b?.document_id && (
               <button
-                className="btn btn-secondary btn-sm text-xs flex items-center gap-1"
+                className="btn-trace-action"
                 onClick={() => handleOpenViewer(rel.fact_b?.document_id, rel.fact_b_id, evB?.page_number || 1)}
               >
-                <IconExternalLink className="w-3.5 h-3.5 text-rose-500" />
+                <IconExternalLink style={{ width: 13, height: 13, color: '#D97706' }} />
                 <span>Fact B in Viewer</span>
               </button>
             )}
-            <button className="btn btn-primary btn-sm px-4" onClick={onClose}>
-              Close Trace
+            <button className="btn-trace-primary" onClick={onClose}>
+              Done
             </button>
           </div>
         </div>

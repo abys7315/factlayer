@@ -8,6 +8,7 @@ import {
   IconCheckCircle,
   IconLayers,
   IconNetwork,
+  IconFileText,
 } from './Icons';
 import { api } from '../api/client';
 import ReasoningTraceModal from './ReasoningTraceModal';
@@ -33,29 +34,45 @@ export default function TimelineView() {
     fetchSupersedes();
   }, []);
 
+  // Format fact values cleanly (human-readable string over raw DB float)
+  const formatVal = (f) => {
+    if (!f) return 'N/A';
+    if (f.value_text && String(f.value_text).trim()) return f.value_text;
+    if (f.object_value && String(f.object_value).trim()) return f.object_value;
+    if (f.normalized_value !== null && f.normalized_value !== undefined) {
+      if (typeof f.normalized_value === 'number') {
+        return f.normalized_value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+      }
+      return String(f.normalized_value);
+    }
+    return 'N/A';
+  };
+
   return (
     <div className="timeline-view-container space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="type-badge badge-supersedes">Temporal Progression</span>
+            <span className="crystal-type-badge badge-supersedes">
+              Temporal Progression
+            </span>
           </div>
-          <h1 className="page-title mt-1">Fact History & Supersession Timeline</h1>
+          <h1 className="page-title mt-2">Fact History &amp; Supersession Timeline</h1>
           <p className="page-subtitle">
-            Track how entity attributes evolve across reporting periods, fiscal years, and document updates.
+            Track how entity attributes evolve across reporting periods, fiscal years, and document revisions.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
             to="/graph?preset=supersedes&from=timeline"
-            className="btn btn-primary btn-sm flex items-center gap-1.5"
+            className="crystal-btn-graph"
             title="Visualize supersessions and temporal evolution in the Knowledge Graph"
           >
             <IconNetwork className="w-4 h-4" />
             <span>Explore in Graph</span>
           </Link>
-          <button className="btn btn-ghost" onClick={fetchSupersedes}>
+          <button className="crystal-btn-trace" onClick={fetchSupersedes}>
             <IconRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
@@ -63,100 +80,148 @@ export default function TimelineView() {
       </div>
 
       {/* Timeline List */}
-      <div className="space-y-6">
+      <div className="space-y-5">
         {supersedes.length === 0 ? (
-          <div className="card glass-card p-12 text-center text-muted">
-            <IconClock className="w-10 h-10 text-amber-400 mx-auto mb-3 opacity-80" />
-            <h3 className="text-base font-semibold text-primary">No Superseded Facts Yet</h3>
+          <div className="card p-12 text-center text-muted bg-white rounded-2xl border border-slate-200">
+            <IconClock className="w-10 h-10 text-amber-500 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-primary">No Superseded Facts Yet</h3>
             <p className="text-xs text-muted max-w-md mx-auto mt-1">
               Upload multiple revisions, quarterly filings, or annual reports to visualize attribute timelines over time.
             </p>
           </div>
         ) : (
-          supersedes.map((rel, idx) => (
-            <div key={rel.id} className="card glass-card p-6 space-y-4">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <IconClock className="w-4 h-4 text-amber-400" />
-                  <span className="font-semibold text-sm text-primary">
-                    {rel.fact_a?.entity_name} &bull; <span className="text-accent">{rel.fact_a?.attribute}</span>
+          supersedes.map((rel) => {
+            const conf = Math.round((rel.confidence_score || rel.confidence || 0.95) * 100);
+            return (
+              <div key={rel.id} className="crystal-rel-card type-supersedes">
+                {/* Header */}
+                <div className="crystal-card-header">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="crystal-type-badge badge-supersedes">
+                      <IconClock style={{ width: 14, height: 14 }} />
+                      <span>SUPERSEDES</span>
+                    </span>
+                    <span style={{ fontSize: '15px', fontWeight: 800, color: '#0F172A' }}>
+                      {rel.fact_a?.entity_name || 'Entity'} &bull; <span style={{ color: '#D97706' }}>{rel.fact_a?.attribute || 'Attribute'}</span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="crystal-conf-badge">
+                      {conf}% Confidence
+                    </span>
+                    <span className="crystal-engine-pill">
+                      Engine: <strong>{rel.engine || 'Temporal Reasoner'}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Visual Timeline Progression */}
+                <div className="grid grid-cols-1 md:grid-cols-7 items-center gap-4">
+                  {/* Prior State Box */}
+                  <div className="md:col-span-3 crystal-fact-box">
+                    <div className="crystal-fact-header">
+                      <span className="crystal-fact-tag">Prior State</span>
+                      {rel.fact_a?.validity_start && (
+                        <span className="crystal-fact-period">{rel.fact_a.validity_start}</span>
+                      )}
+                    </div>
+                    <div className="crystal-fact-entity">{rel.fact_a?.entity_name || 'N/A'}</div>
+                    <div className="crystal-fact-pred">{rel.fact_a?.attribute || 'Metric'}</div>
+                    <div className="crystal-fact-val-box source">
+                      <div className="crystal-fact-val-text text-source">
+                        {formatVal(rel.fact_a)}
+                      </div>
+                    </div>
+                    {rel.fact_a?.document_filename && (
+                      <span className="crystal-fact-doc" title={rel.fact_a.document_filename}>
+                        <IconFileText style={{ width: 12, height: 12, display: 'inline', marginRight: 4 }} />
+                        {rel.fact_a.document_filename}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Transition Arrow */}
+                  <div className="md:col-span-1 flex flex-col items-center justify-center text-center py-2">
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: '50%',
+                      background: '#FFFBEB',
+                      border: '1.5px solid #FCD34D',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#D97706'
+                    }}>
+                      <IconArrowRight style={{ width: 20, height: 20 }} />
+                    </div>
+                    <span style={{ fontSize: '11px', fontWeight: 800, color: '#D97706', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Superseded
+                    </span>
+                  </div>
+
+                  {/* Superseding State Box */}
+                  <div className="md:col-span-3 crystal-fact-box crystal-fact-box-target">
+                    <div className="crystal-fact-header">
+                      <span className="crystal-fact-tag" style={{ color: '#D97706' }}>Superseding State</span>
+                      {rel.fact_b?.validity_start && (
+                        <span className="crystal-fact-period" style={{ background: '#FEF3C7', color: '#B45309' }}>{rel.fact_b.validity_start}</span>
+                      )}
+                    </div>
+                    <div className="crystal-fact-entity">{rel.fact_b?.entity_name || 'N/A'}</div>
+                    <div className="crystal-fact-pred">{rel.fact_b?.attribute || 'Metric'}</div>
+                    <div className="crystal-fact-val-box target-supersedes">
+                      <div className="crystal-fact-val-text text-supersedes">
+                        {formatVal(rel.fact_b)}
+                      </div>
+                    </div>
+                    {rel.fact_b?.document_filename && (
+                      <span className="crystal-fact-doc" title={rel.fact_b.document_filename}>
+                        <IconFileText style={{ width: 12, height: 12, display: 'inline', marginRight: 4 }} />
+                        {rel.fact_b.document_filename}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Explanation */}
+                <div className="crystal-rationale-box" style={{ borderLeftColor: '#D97706' }}>
+                  <div className="crystal-rationale-label" style={{ color: '#B45309' }}>
+                    <IconClock style={{ width: 14, height: 14 }} />
+                    <span>Temporal Evolution Assessment</span>
+                  </div>
+                  <p className="crystal-rationale-text">
+                    {rel.explanation || 'Target statement supersedes the prior statement based on subsequent fiscal reporting.'}
+                  </p>
+                </div>
+
+                {/* Footer */}
+                <div className="crystal-card-footer">
+                  <span className="crystal-uuid-pill">
+                    ID: {rel.id ? `${rel.id.substring(0, 8)}...` : 'N/A'}
                   </span>
-                </div>
-                <span className="type-badge badge-supersedes">
-                  SUPERSEDES
-                </span>
-              </div>
-
-              {/* Visual Arrow Timeline Progression */}
-              <div className="grid grid-cols-1 md:grid-cols-7 items-center gap-4">
-                {/* Previous Value */}
-                <div className="md:col-span-3 p-4 rounded-lg bg-surface border border-border space-y-1">
-                  <div className="flex items-center justify-between text-xs text-muted font-mono">
-                    <span>PRIOR STATE</span>
-                    <span>{rel.fact_a?.validity_start || 'Earlier'}</span>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/graph?relationship_id=${encodeURIComponent(rel.id)}&preset=supersedes&from=timeline`}
+                      className="crystal-btn-trace"
+                      title="Focus Knowledge Graph on this supersession pair"
+                    >
+                      <IconNetwork style={{ width: 14, height: 14, color: '#D97706' }} />
+                      <span>View in Graph</span>
+                    </Link>
+                    <button
+                      className="crystal-btn-trace"
+                      onClick={() => setSelectedRel(rel)}
+                    >
+                      <IconSparkles style={{ width: 14, height: 14, color: '#2563EB' }} />
+                      <span>Inspect Reasoning Trace</span>
+                    </button>
                   </div>
-                  <div className="text-sm font-semibold text-secondary">
-                    {rel.fact_a?.entity_name}
-                  </div>
-                  <div className="p-2.5 rounded bg-black/40 font-mono text-sm text-muted">
-                    {String(rel.fact_a?.normalized_value ?? rel.fact_a?.value_text)}
-                  </div>
-                  <span className="text-[10px] text-muted block italic">"{rel.fact_a?.value_text}"</span>
-                </div>
-
-                {/* Arrow */}
-                <div className="md:col-span-1 flex flex-col items-center justify-center text-center">
-                  <div className="p-2 rounded-full bg-amber-500/10 text-amber-400">
-                    <IconArrowRight className="w-5 h-5" />
-                  </div>
-                  <span className="text-[10px] font-mono text-muted mt-1">Updated</span>
-                </div>
-
-                {/* New Superseding Value */}
-                <div className="md:col-span-3 p-4 rounded-lg bg-surface border border-amber-500/30 space-y-1 shadow-lg shadow-amber-500/5">
-                  <div className="flex items-center justify-between text-xs text-amber-400 font-mono font-bold">
-                    <span>SUPERSEDING STATE</span>
-                    <span>{rel.fact_b?.validity_start || 'Latest'}</span>
-                  </div>
-                  <div className="text-sm font-semibold text-primary">
-                    {rel.fact_b?.entity_name}
-                  </div>
-                  <div className="p-2.5 rounded bg-black/40 font-mono text-sm text-amber-400 font-bold">
-                    {String(rel.fact_b?.normalized_value ?? rel.fact_b?.value_text)}
-                  </div>
-                  <span className="text-[10px] text-muted block italic">"{rel.fact_b?.value_text}"</span>
                 </div>
               </div>
-
-              {/* Explanation & Action */}
-              <div className="p-3 rounded-lg bg-surface-alt text-xs text-secondary leading-relaxed">
-                {rel.explanation}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <span className="text-[10px] font-mono text-muted">
-                  Relationship UUID: {rel.id}
-                </span>
-                <div className="flex items-center gap-2">
-                  <Link
-                    to={`/graph?relationship_id=${encodeURIComponent(rel.id)}&preset=supersedes&from=timeline`}
-                    className="btn btn-secondary btn-sm flex items-center gap-1.5 text-amber-500 border-amber-300/40 hover:bg-amber-500/10"
-                    title="Focus Knowledge Graph on this supersession pair"
-                  >
-                    <IconNetwork className="w-3.5 h-3.5 text-amber-400" />
-                    <span>View in Graph</span>
-                  </Link>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setSelectedRel(rel)}
-                  >
-                    <IconSparkles className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Inspect Reasoning Trace</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
